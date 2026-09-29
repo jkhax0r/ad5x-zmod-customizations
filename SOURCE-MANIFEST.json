@@ -7,7 +7,7 @@
     },
     {
       "path": "macros/safe_line_purge.cfg",
-      "sha256": "5dbd35f25a261fe8d52453532db1d03899aa058121fa01f0ff63c72e8d251ccb"
+      "sha256": "084c7cfba7425b1cdf703ff66b97d6b5517ad78a20da4114a1bfe7d01ce023b8"
     },
     {
       "path": "macros/stock_mesh_average.cfg",
@@ -16,6 +16,10 @@
     {
       "path": "probe/probe.py",
       "sha256": "bac18416df8c6e9a3ba354545737bc930d6a4b403c1cc00c43016dadba2ea412"
+    },
+    {
+      "path": "extras/ad5x_purge.py",
+      "sha256": "655cefc62581b541bdf1dd0c9b5b97c3e5764fda3495e55c861c684dd7810b5c"
     }
   ]
 }

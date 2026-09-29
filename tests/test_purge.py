@@ -12,6 +12,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent))
+sys.path.insert(0, str(ROOT.parent/'extras'))
+from ad5x_purge import AD5XPurge
 from harness import Config, Harness, Reactor, Status, Toolhead, gcode, macro, move, config_native
 
 LIVE = json.loads((ROOT / 'fixtures/purge.json').read_text())
@@ -28,6 +30,7 @@ class PurgeHarness(Harness):
         self.retracts = 0
         self.accel = 20000.
         for name, value in LIVE.items(): self.objects[name] = Status(value)
+        self.objects['virtual_sdcard'].data['file_path'] = None
         for name, value in LIVE['configfile']['config'].items():
             if name.startswith('gcode_macro '):
                 self.objects[name] = Status({k[9:]:ast.literal_eval(v) for k,v in value.items() if k.startswith('variable_')})
@@ -45,7 +48,7 @@ class PurgeHarness(Harness):
         parser.printer = self
         self.parsed = parser._build_config_wrapper('[include ../macros/safe_line_purge.cfg]\n', str(ROOT/'parent.cfg')).fileconfig
         for name in self.parsed.sections():
-            self.objects[name] = macro.GCodeMacro(Config(self,name,dict(self.parsed[name])))
+            self.objects[name] = (AD5XPurge(Config(self,name)) if name == 'ad5x_purge' else macro.GCodeMacro(Config(self,name,dict(self.parsed[name]))))
         if native: self.objects['firmware_retraction'] = Status({})
         else: self.objects.pop('firmware_retraction',None)
         def respond(c): self.messages.append(c.get('MSG',''))
@@ -121,7 +124,7 @@ class PlacementTests(unittest.TestCase):
 
     def test_nearly_full_bed_brim_rectangle_is_not_ignored(self):
         h=PurgeHarness(None)
-        with self.assertRaisesRegex(gcode.CommandError,'2.40'):h.plan()
+        with self.assertRaisesRegex(gcode.CommandError,'no safe outer side'):h.plan()
         self.assertEqual(h.motion,[])
 
     def test_margin_and_bead_inset_boundary(self):
@@ -156,11 +159,13 @@ class PlacementTests(unittest.TestCase):
         for name,key,value in [('extruder','can_extrude',False),('toolhead','homed_axes','')]:
             h=PurgeHarness();h.objects[name].data[key]=value
             with self.assertRaisesRegex(gcode.CommandError,'homed axes and a hot nozzle'):h.gcode.run_script('LINE_PURGE')
-            self.assertEqual(h.commands,[]);self.assertEqual(h.motion,[])
+            self.assertEqual(h.commands,['RESPOND']);self.assertEqual(h.motion,[])
 
     def test_native_parser_preserves_every_macro_body(self):
         h=PurgeHarness()
-        for section in RAW.sections():self.assertEqual(h.parsed.get(section,'gcode').strip(),RAW.get(section,'gcode').strip())
+        for section in RAW.sections():
+            if section == 'ad5x_purge': continue
+            self.assertEqual(h.parsed.get(section,'gcode').strip(),RAW.get(section,'gcode').strip())
 
     def test_actual_purge_paths_fit_bed_and_stay_outside_footprint(self):
         boxes=[(20,100,200,180),(100,20,180,200),(20,20,120,200),(20,20,200,120),(190,100,215,190),(5,100,25,190)]

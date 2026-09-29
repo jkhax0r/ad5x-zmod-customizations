@@ -20,6 +20,9 @@ After an update, while the printer is idle:
    but the module was replaced, Klipper can reject the unsupported settings.
 3. Compare the new vendor macro files with `baselines/zmod`. Port the small soak
    hooks to changed macro bodies and review the purge helpers/bed limits.
+   Check that native Klipper's `extras/ad5x_purge.py` still links to the reviewed
+   copy in `mod_data`. A firmware replacement can remove this link even if user
+   files survive; follow INSTALL.md to restore it on a compatible installation.
 4. Run `python run_tests.py`. The retained tests use the recorded interpreter
    fixtures; extend/update fixtures and tests for changed upstream behavior.
 5. Restart appropriately, check loaded settings/macros, and verify a supervised

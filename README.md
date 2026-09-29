@@ -17,7 +17,10 @@ inside a brim. This replacement:
 
 - Evaluates **front, left, right, and back**, choosing the valid side with the
   widest available band; ties use that order.
-- Includes all reported object polygons, including Z-Mod's `BORDER1` brim rectangle.
+- Uses all reported polygons, including `BORDER1`, for the quick outer-band check.
+- If that aggregate rectangle hides free space, reads the actual Orca brim and
+  low-layer travel paths and searches clear segments along all four bed edges.
+  Real model polygons remain filled obstacles. Timelapse parking paths are included.
 - Checks the remaining clearance **after clamping** the candidate position.
 - Keeps the nominal bead envelope, extrusion stroke, and 10 mm wipe inside the
   intersection of configured bed limits and toolhead travel limits.
@@ -29,13 +32,16 @@ macro preserves the existing purge amount, height, and speed formula. It uses th
 configured purge margin as a minimum centerline-to-footprint clearance. The bead
 allowance is a geometric estimate, not a measurement of real molten plastic.
 
-The search is conservative: it does not find empty pockets inside the bounding
-rectangle of multiple parts. A nearly full-bed brim can leave no valid side.
-Reduce/rearrange the footprint or use a separately reviewed purge location in
-that case. Missing brim/footprint data cannot be protected by this macro.
+The original four-edge version could reject a large L-shaped layout because its
+aggregate brim rectangle covered nearly the entire bed. The new
+[`extras/ad5x_purge.py`](extras/ad5x_purge.py) fallback checks the actual paths for
+clear partial-edge segments. It requires complete, supported Orca by-layer
+G-code; unknown motion commands, arcs, incomplete geometry, and truly blocked
+edges still stop before purge motion. It does not reduce the configured margin.
 
-**Install:** upload the file to `mod_data`, append the following to `user.cfg`,
-and restart Klipper while no print or heat soak is active:
+**Install both files:** place the macro and helper in `mod_data`, link the helper
+into native Klipper's extras directory as described in
+[installation](docs/INSTALL.md), then append this to `user.cfg` and restart while idle:
 
 ```ini
 [include safe_line_purge.cfg]
@@ -43,7 +49,8 @@ and restart Klipper while no print or heat soak is active:
 
 With a footprint already loaded, `LINE_PURGE DRY_RUN=1` reports the selected side,
 coordinates, and clearance without motion, heating, or changing sensors. It is a
-placement check, not a physical purge test. See [installation](docs/INSTALL.md).
+placement check, not a physical purge test. To inspect a stored file without
+loading a job, use `PLAN_EDGE_PURGE DRY_RUN=1 FILE="example.gcode"`.
 
 ## Other preserved changes
 
@@ -92,8 +99,10 @@ clearance, clipped boundaries, brim bounds, bead allowance, full stroke/wipe fit
 error paths, state restoration, and 120 seeded random footprints. The suites run
 in separate processes because the legacy harness changes global logging.
 
-This public release has **72 passing offline tests**. The four-edge purge has not
-yet completed a physical purge qualification. [Validation details](docs/VALIDATION.md).
+This public release has **91 passing offline tests**. The fallback was also
+deployed and checked without motion on the development printer against the file
+that exposed the aggregate-box failure. Physical extrusion qualification remains
+pending. [Validation details](docs/VALIDATION.md).
 
 ## License and attribution
 
