@@ -1,0 +1,227 @@
+--- a/klippy/extras/probe.py
++++ b/klippy/extras/probe.py
+@@ -1,11 +1,13 @@
++# Modified September 2026: discarded fast probe and selectable fixed/adaptive retract.
+ # Z-Probe support
+ #
+ # Copyright (C) 2017-2024  Kevin O'Connor <kevin@koconnor.net>
+ #
+ # This file may be distributed under the terms of the GNU GPLv3 license.
+ import logging
++import math
+ import pins
+-from . import manual_probe
++from . import manual_probe, homing
+ 
+ HINT_TIMEOUT = """
+ If the probe did not move far enough to trigger, then
+@@ -247,6 +249,36 @@
+         self.homing_helper = HomingViaProbeHelper(config, mcu_probe)
+         # Configurable probing speeds
+         self.speed = config.getfloat('speed', 5.0, above=0.)
++        # Optional fast throwaway probe before the real sample(s).
++        # Omitted, blank, or 0 disables it.
++        _first_probe_speed = config.get('first_probe_speed', '0').strip()
++        if _first_probe_speed:
++            try:
++                self.first_probe_speed = float(_first_probe_speed)
++            except ValueError:
++                raise config.error("first_probe_speed must be a number")
++        else:
++            self.first_probe_speed = 0.
++        if self.first_probe_speed < 0.:
++            raise config.error("first_probe_speed must be >= 0")
++        # Extra release travel after the discarded fast contact only.
++        self.first_probe_extra_retract_dist = config.getfloat(
++            'first_probe_extra_retract_dist', 0., minval=0.)
++        if not math.isfinite(self.first_probe_extra_retract_dist):
++            raise config.error("first_probe_extra_retract_dist must be finite")
++        self.probe_retract_mode = config.getchoice(
++            'probe_retract_mode', {'fixed': 'fixed', 'adaptive': 'adaptive'},
++            'fixed')
++        self.probe_release_clearance = config.getfloat(
++            'probe_release_clearance', 0.050, minval=0.)
++        self.probe_release_max_dist = config.getfloat(
++            'probe_release_max_dist', 1.0, above=0.)
++        self.probe_release_speed = config.getfloat(
++            'probe_release_speed', 1.0, above=0.)
++        for value in (self.probe_release_clearance, self.probe_release_max_dist,
++                      self.probe_release_speed):
++            if not math.isfinite(value):
++                raise config.error("Probe release settings must be finite")
+         self.lift_speed = config.getfloat('lift_speed', self.speed, above=0.)
+         # Multi-sample support (for improved accuracy)
+         self.sample_count = config.getint('samples', 1, minval=1)
+@@ -328,18 +360,153 @@
+         gcode.respond_info("probe at %.3f,%.3f is z=%.6f"
+                            % (epos[0], epos[1], epos[2]))
+         return epos[:3]
++    def _get_retract_params(self, gcmd):
++        mode = gcmd.get('PROBE_RETRACT_MODE', self.probe_retract_mode).lower()
++        if mode not in ('fixed', 'adaptive'):
++            raise gcmd.error("PROBE_RETRACT_MODE must be fixed or adaptive")
++        clearance = gcmd.get_float('PROBE_RELEASE_CLEARANCE',
++                                  self.probe_release_clearance, minval=0.)
++        max_dist = gcmd.get_float('PROBE_RELEASE_MAX_DIST',
++                                 self.probe_release_max_dist, above=0.)
++        speed = gcmd.get_float('PROBE_RELEASE_SPEED',
++                              self.probe_release_speed, above=0.)
++        if not all(math.isfinite(v) for v in (clearance, max_dist, speed)):
++            raise gcmd.error("Probe release settings must be finite")
++        sync = gcmd.get('PROBE_RELEASE_SYNC', 'queued').lower()
++        if sync not in ('legacy', 'optimized', 'queued'):
++            raise gcmd.error("PROBE_RELEASE_SYNC must be legacy, optimized or queued")
++        return mode, clearance, max_dist, speed, sync
++
++    def _log_release(self, gcmd, message):
++        logging.info(message)
++        gcmd.respond_info(message)
++
++    def _adaptive_retract(self, gcmd, contact, label, retract):
++        _, clearance, max_dist, speed, sync = retract
++        toolhead = self.printer.lookup_object('toolhead')
++        clock = self.printer.get_reactor().monotonic
++        t0 = clock()
++        # _probe() has already waited for the MCU stop and actual step positions.
++        # Avoid flushing/repriming that completed move merely to read the pin.
++        if sync == 'legacy':
++            toolhead.wait_moves()
++        t1 = clock()
++        start = toolhead.get_position()
++        now = clock()
++        zmax = toolhead.get_status(now)['axis_maximum'][2]
++        if start[2] + max_dist + clearance > zmax:
++            raise gcmd.error("Adaptive retract would exceed Z travel limit")
++        query_time = (toolhead.get_last_move_time() if sync == 'legacy' else
++                      self.mcu_probe.get_mcu().estimated_print_time(clock()))
++        if not self.mcu_probe.query_endstop(query_time):
++            self._log_release(gcmd, 
++                'PROBE_RELEASE %s X=%.4f Y=%.4f contact_z=%.5f '
++                'halt_z=%.5f state=already_clear' %
++                (label, contact[0], contact[1], contact[2], start[2]))
++            raise gcmd.error(
++                "Probe already clear after contact; release height unknown. "
++                "Use fixed retract mode until the signal is verified.")
++        t2 = clock()
++        target = list(start)
++        target[2] += max_dist
++        hmove = homing.HomingMove(self.printer, [(self.mcu_probe, 'probe')])
++        try:
++            release = hmove.homing_move(target, speed, probe_pos=True,
++                                       triggered=False, check_triggered=True)
++        except self.printer.command_error:
++            self._log_release(gcmd, 
++                'PROBE_RELEASE %s X=%.4f Y=%.4f contact_z=%.5f '
++                'state=release_failed max_dist=%.5f' %
++                (label, contact[0], contact[1], contact[2], max_dist))
++            raise
++        t3 = clock()
++        halt_z = toolhead.get_position()[2]
++        final_z = halt_z + clearance
++        if final_z > zmax:
++            raise gcmd.error("Adaptive retract clearance exceeds Z travel")
++        queued_end = None
++        if clearance == 0. and sync == 'queued':
++            # The release homing move has already stopped at halt_z. Preserve
++            # 20 ms settling without priming a new, empty motion-buffer window.
++            reactor = self.printer.get_reactor()
++            reactor.pause(clock() + 0.020)
++        else:
++            toolhead.manual_move([None, None, final_z], speed)
++            toolhead.dwell(0.020)
++            if sync == 'queued':
++                # Schedule the check after actual clearance motion and dwell.
++                queued_end = toolhead.get_last_move_time()
++            else:
++                toolhead.wait_moves()
++        t4 = clock()
++        # Motion and the settling dwell are complete. A current-time query
++        # checks release without starting another future motion-buffer window.
++        query_time = (queued_end if queued_end is not None else
++                      toolhead.get_last_move_time() if sync == 'legacy' else
++                      self.mcu_probe.get_mcu().estimated_print_time(clock()))
++        pin_state = self.mcu_probe.query_endstop(query_time)
++        remaining = 0.
++        if queued_end is not None:
++            remaining = queued_end - self.mcu_probe.get_mcu().estimated_print_time(clock())
++            if remaining > 0.:
++                # A query that returns before physical completion is not a
++                # valid post-clearance check. Finish the move and sample again.
++                toolhead.wait_moves()
++                pin_state = self.mcu_probe.query_endstop(
++                    self.mcu_probe.get_mcu().estimated_print_time(clock()))
++        if pin_state:
++            self._log_release(gcmd, 
++                'PROBE_RELEASE %s contact_z=%.5f release_z=%.5f '
++                'final_z=%.5f state=retriggered' %
++                (label, contact[2], release[2], final_z))
++            raise gcmd.error("Probe re-triggered after adaptive clearance")
++        t5 = clock()
++        self._log_release(gcmd, 
++            'PROBE_RELEASE %s X=%.4f Y=%.4f contact_z=%.5f '
++            'release_z=%.5f release_delta=%.5f halt_z=%.5f '
++            'final_z=%.5f clearance=%.5f start_z=%.5f speed=%.3f sync=%s '
++            'wait_before_ms=%.1f check_before_ms=%.1f release_move_ms=%.1f '
++            'clearance_wait_ms=%.1f check_after_ms=%.1f total_ms=%.1f '
++            'post_remaining_ms=%.1f' %
++            (label, contact[0], contact[1], contact[2], release[2],
++             release[2] - contact[2], halt_z, final_z, clearance, start[2],
++             speed, sync, 1000*(t1-t0), 1000*(t2-t1), 1000*(t3-t2),
++             1000*(t4-t3), 1000*(t5-t4), 1000*(t5-t0), 1000*remaining))
++
+     def run_probe(self, gcmd):
+         if not self.multi_probe_pending:
+             self._probe_state_error()
+         params = self.get_probe_params(gcmd)
++        retract = self._get_retract_params(gcmd)
++        release_final = gcmd.get_int('PROBE_RELEASE_FINAL', 0, minval=0, maxval=1)
+         toolhead = self.printer.lookup_object('toolhead')
+         probexy = toolhead.get_position()[:2]
+         retries = 0
+         positions = []
++
++        # Optional fast initial touch.  Its result is discarded.
++        first_probe_speed = gcmd.get_float(
++            "FIRST_PROBE_SPEED", self.first_probe_speed, minval=0.)
++        first_extra_retract = gcmd.get_float(
++            "FIRST_PROBE_EXTRA_RETRACT_DIST",
++            self.first_probe_extra_retract_dist, minval=0.)
++        if not math.isfinite(first_extra_retract):
++            raise gcmd.error("FIRST_PROBE_EXTRA_RETRACT_DIST must be finite")
++        if first_probe_speed > 0.:
++            first_pos = self._probe(first_probe_speed)
++            if retract[0] == 'adaptive':
++                self._adaptive_retract(gcmd, first_pos, 'fast', retract)
++            else:
++                toolhead.manual_move(
++                    probexy + [first_pos[2] + first_extra_retract
++                               + params['sample_retract_dist']],
++                    params['lift_speed'])
+         sample_count = params['samples']
++        attempt = 0
+         while len(positions) < sample_count:
+             # Probe position
+             pos = self._probe(params['probe_speed'])
++            attempt += 1
+             positions.append(pos)
+             # Check samples tolerance
+             z_positions = [p[2] for p in positions]
+@@ -350,7 +517,17 @@
+                 retries += 1
+                 positions = []
+             # Retract
+-            if len(positions) < sample_count:
++            if retract[0] == 'adaptive':
++                if len(positions) < sample_count or release_final:
++                    self._adaptive_retract(gcmd, pos, 'slow_%d' % attempt, retract)
++                else:
++                    # Match native PROBE: the caller performs the final lift.
++                    # Contact height is still logged; no release is invented.
++                    self._log_release(gcmd,
++                        'PROBE_CONTACT slow_%d X=%.4f Y=%.4f contact_z=%.5f '
++                        'final_sample=1 caller_lift=1' %
++                        (attempt, pos[0], pos[1], pos[2]))
++            elif len(positions) < sample_count:
+                 toolhead.manual_move(
+                     probexy + [pos[2] + params['sample_retract_dist']],
+                     params['lift_speed'])

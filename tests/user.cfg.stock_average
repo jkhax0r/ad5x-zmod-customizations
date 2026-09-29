@@ -1,0 +1,12 @@
+[probe]
+first_probe_speed: 5
+samples: 3
+samples_tolerance: 0.02
+
+[bed_mesh merged_33x33_85]
+version: 1
+points:
+  0.0, 0.0
+  0.0, 0.0
+
+[include ../macros/stock_mesh_average.cfg]

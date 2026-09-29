@@ -1,0 +1,21 @@
+{
+  "baseline": "AD5X Z-Mod 1.7.2-5 / native Klipper 12",
+  "files": [
+    {
+      "path": "macros/optional_print_soak.cfg",
+      "sha256": "282cbfb8dad12ffbac4f8ea0704d33308af771d0f6947e249c8b9daae4c69980"
+    },
+    {
+      "path": "macros/safe_line_purge.cfg",
+      "sha256": "5dbd35f25a261fe8d52453532db1d03899aa058121fa01f0ff63c72e8d251ccb"
+    },
+    {
+      "path": "macros/stock_mesh_average.cfg",
+      "sha256": "030139049df8cbe8bb6182043ae8e14c8fca3cf65c31e062e44f03767482cc1d"
+    },
+    {
+      "path": "probe/probe.py",
+      "sha256": "bac18416df8c6e9a3ba354545737bc930d6a4b403c1cc00c43016dadba2ea412"
+    }
+  ]
+}

@@ -1,0 +1,404 @@
+{
+  "configfile": {
+    "config": {
+      "gcode_macro _FULL_BED_LEVEL": {
+        "description": "Bed calibration without temperature off",
+        "gcode": "\n{% set extruder_temp = params.EXTRUDER_TEMP|default(240)|float %}\n{% set bed_temp = params.BED_TEMP|default(80)|float %}\n{% set profile = params.PROFILE|default(\"auto\") %}\n\nRESPOND PREFIX=\"info\" MSG=\"Bed calibration. Profile {profile}. Extruder temp: {extruder_temp} / Bed temp: {bed_temp}\"\n\nBED_MESH_CLEAR FROM=_FULL_BED_LEVEL\nM400\n\n_ORIG_CLEAR_NOZZLE EXTRUDER_TEMP={extruder_temp} BED_TEMP={bed_temp}\n\n\n_BED_MESH_CALIBRATE PROFILE=\"{profile}\"\n\n_UGOL_PARK"
+      },
+      "gcode_macro KAMP": {
+        "description": "Adaptive bed",
+        "gcode": "\n{% set extruder_temp = params.EXTRUDER_TEMP|default(240)|float %}\n{% set bed_temp = params.BED_TEMP|default(80)|float %}\n{% set client = printer['gcode_macro _CLIENT_VARIABLE'] | default({}) %}\n\nBED_MESH_CLEAR FROM=KAMP\nM400\n\n_ORIG_CLEAR_NOZZLE EXTRUDER_TEMP={extruder_temp} BED_TEMP={bed_temp}\n\nM400\n_KAMP_BED_MESH_CALIBRATE\nM400\n\n_SMART_PARK\nM400\n\n_WAIT_TEMP EXTRUDER_TEMP={extruder_temp} BED_TEMP={bed_temp} NAME=KAMP"
+      },
+      "gcode_macro _START_PRINT": {
+        "description": "Replace default start G-code",
+        "variable_zextruder_temp": "245.0",
+        "variable_zbed_temp": "80.0",
+        "variable_zforce_kamp": "False",
+        "variable_zforce_leveling": "False",
+        "variable_zskip_leveling": "False",
+        "variable_zzoffset": "99.0",
+        "variable_zmesh": "\"\"",
+        "gcode": "\n{% set force_kamp = printer[\"gcode_macro _START_PRINT\"].zforce_kamp %}\n{% set extruder_temp = printer[\"gcode_macro _START_PRINT\"].zextruder_temp|float %}\n{% set bed_temp = printer[\"gcode_macro _START_PRINT\"].zbed_temp|float %}\n{% set force_leveling = printer[\"gcode_macro _START_PRINT\"].zforce_leveling %}\n{% set zoffset = printer[\"gcode_macro _START_PRINT\"].zzoffset %}\n{% set skip_leveling = printer[\"gcode_macro _START_PRINT\"].zskip_leveling %}\n{% set mesh = printer[\"gcode_macro _START_PRINT\"].zmesh %}\n\n{% set filename = printer.virtual_sdcard.file_path|default(\"\")|string  %}\n\n{% set force_md5 = printer.save_variables.variables['force_md5']|default(1) | int %}\n{% set disable_priming = printer.save_variables.variables['disable_priming']|default(0) | int %}\n{% set disable_skew = printer.save_variables.variables['disable_skew']|default(1) | int %}\n{% set load_zoffset = printer.save_variables.variables['load_zoffset']|default(1) | int %}\n{% set zclear = printer.save_variables.variables['clear']|default(\"LINE_PURGE\")|string %}\n{% set zuse_kamp = printer.save_variables.variables['use_kamp']|default(0) | int %}\n{% set zprint_leveling = printer.save_variables.variables['print_leveling']|default(0) | int %}\n\n{% set screen = printer[\"gcode_macro _SCREEN\"].screen %}\n{% set client = printer['gcode_macro _CLIENT_VARIABLE'] | default({}) %}\n\n_PREPARE_PRINT\n\nCLEAR_PAUSE\nZCONTROL_AUTO\nZCONTROL_ON\nSET_GCODE_VARIABLE MACRO=_CANCEL_PRINT VARIABLE=cancel_send VALUE=0\nZSSH_RELOAD\n\nRESPOND PREFIX=\"info\" MSG=\"START_PRINT BED_TEMP={bed_temp} EXTRUDER_TEMP={extruder_temp} FORCE_LEVELING={force_leveling} FORCE_KAMP={force_kamp} Z_OFFSET={zoffset} SKIP_LEVELING={skip_leveling} MESH={mesh}\"\n\nRESPOND PREFIX=\"info\" MSG=\"Extruder temperature: {extruder_temp}\"\nRESPOND PREFIX=\"info\" MSG=\"Bed temperature: {bed_temp}\"\n\n{% if zprint_leveling == 0 %}\n{% if force_kamp == True %}\nRESPOND PREFIX=\"info\" MSG=\"KAMP: enabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"KAMP: disabled\"\n{% endif %}\n\n{% if force_leveling == True %}\nRESPOND PREFIX=\"info\" MSG=\"Forced bed leveling: enabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Forced bed leveling: disabled\"\n{% endif %}\n\n{% if skip_leveling == True %}\nRESPOND PREFIX=\"info\" MSG=\"Skip bed leveling: enabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Skip bed leveling: disabled\"\n{% endif %}\n\nRESPOND PREFIX=\"info\" MSG=\"Load bed mesh: {mesh}\"\n{% endif %}\n\n{% if screen == False %}\n{% if force_md5 == 1 %}\nRESPOND PREFIX=\"info\" MSG=\"MD5: enabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"MD5: disabled\"\n{% endif %}\n{% endif %}\n\n{% if disable_priming == 1 %}\nRESPOND PREFIX=\"info\" MSG=\"Nozzle priming: disabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Nozzle priming: enabled\"\nRESPOND PREFIX=\"info\" MSG=\"Priming algorithm: {zclear}\"\n{% endif %}\n\n{% if disable_skew == 1 %}\nRESPOND PREFIX=\"info\" MSG=\"SKEW: disabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"SKEW: enabled\"\n{% endif %}\n\n{% set check_md5 = printer.save_variables.variables['check_md5']|default(0) | int %}\n{% if ( force_md5 == 1 and check_md5 == 0 ) %}\nRESPOND PREFIX=\"info\" MSG=\"MD5 check started\"\nCHECK_MD5 DELETE=True\n{% endif %}\n\nM140 S{bed_temp}\nSET_SKEW CLEAR=1\n\n_G28\n\n{% if not client.ad5x %}\n{% set we = printer['temperature_sensor weightValue'].temperature %}\n{% if we != 0 %}\nLOAD_CELL_TARE\n{% endif %}\n{% endif %}\n\n{% if zprint_leveling == 1 %}\n{% if screen == True %}\nRESPOND PREFIX=\"//\" MSG=\"Building bed mesh with native screen on each print. // SAVE_ZMOD_DATA PRINT_LEVELING={zprint_leveling}\"\n{% else %}\nRESPOND PREFIX=\"//\" MSG=\"Building bed mesh on each print. // SAVE_ZMOD_DATA PRINT_LEVELING={zprint_leveling}\"\nBED_MESH_CLEAR FROM=_START_PRINT\nM400\n{% if zuse_kamp == 1 %}\nRESPOND PREFIX=\"info\" MSG=\"Using KAMP from global settings. // SAVE_ZMOD_DATA USE_KAMP={zuse_kamp}\"\nM400\nKAMP BED_TEMP={bed_temp} EXTRUDER_TEMP={extruder_temp}\nM400\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Building full bed mesh. // SAVE_ZMOD_DATA USE_KAMP={zuse_kamp}\"\nM400\n_FULL_BED_LEVEL BED_TEMP={bed_temp} EXTRUDER_TEMP={extruder_temp}\nM400\n{% endif %}\n{% endif %}\n\nRESPOND PREFIX=\"//\" MSG=\"All START_PRINT parameters for bed leveling are ignored\"\n{% else %}\n{% if mesh != \"\" %}\nRESPOND PREFIX=\"info\" MSG=\"Trying to load bed mesh: {mesh}\"\nBED_MESH_CLEAR FROM=_START_PRINT\nM400\n{% for mesh_dt in printer['bed_mesh'].profiles %}\n{% if mesh == mesh_dt %}\nBED_MESH_PROFILE LOAD={mesh} FROM=_START_PRINT\nRESPOND PREFIX=\"info\" MSG=\"Bed mesh {mesh} loaded\"\n{% endif %}\n{% endfor %}\n{% endif %}\n\n_START_MESH\n{% endif %}\n\n\n{% if disable_skew == 0 %}\nRESPOND PREFIX=\"info\" MSG=\"Loading skew_profile\"\nSKEW_PROFILE LOAD=skew_profile\n{% endif %}\n\nG90\n{% if (zprint_leveling == 0 and force_kamp == True) or (zprint_leveling == 1 and screen == False and zuse_kamp == 1) or (zclear == \"LINE_PURGE\" and client.ad5x == 0 ) %}\n_SMART_PARK\n{% else %}\n_UGOL_PARK\n{% endif %}\n\n\n\n\n_WAIT_TEMP EXTRUDER_TEMP={extruder_temp} BED_TEMP={bed_temp} NAME=START_PRINT\n\n{% if client.ad5x %}\n{% if not ( (zprint_leveling == 0 and force_kamp == True ) or ( zprint_leveling == 1 and screen == False and zuse_kamp == 1 ) ) %}\n_PRINT_CLEAR_NOZZLE\n{% endif %}\nM400\n_SMART_PARK\n{% endif %}\n\n{% if (load_zoffset == 1) and (screen == False) %}\nRESPOND PREFIX=\"info\" MSG=\"Using global Z-Offset control. Z_OFFSET parameter ignored\"\nLOAD_GCODE_OFFSET\n{% else %}\n{% if (load_zoffset == 1) and (screen == True) %}\nRESPOND PREFIX=\"info\" MSG=\"Global Z-Offset load: ignored (working with screen)\"\n{% endif %}\n\n{% if zoffset == 99.0 %}\nRESPOND PREFIX=\"info\" MSG=\"Z-Offset setup skipped\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Setting Z-Offset {zoffset}\"\n_SET_GCODE_OFFSET_FAST Z={zoffset} FROM=START_PRINT\n{% endif %}\n{% endif %}\n\n{% set mesh_test = printer.save_variables.variables['mesh_test']|default(1) | int %}\n{% if mesh_test == 0 or force_kamp == True or zprint_leveling == 1 or force_leveling == True %}\n_PRINT_MESH\n{% else %}\n_MESH_TEST\n{% endif %}\n\n{% if printer.gcode_move.gcode_position.z < 5 %}\nG1 Z5 F3000\n{% endif %}\n\n{% set zmidi_start = printer.save_variables.variables['midi_start']|default(\"\") | string %}\n\n{% if zmidi_start != \"\" %}\nPLAY_MIDI FILE={zmidi_start}\n{% endif %}\n\n{% if disable_priming == 1 %}\nRESPOND PREFIX=\"info\" MSG=\"Nozzle line purge disabled. DISABLE_PRIMING={disable_priming}\"\nEXCLUDE_OBJECT_DEFINE RESET=1\nZEXCLUDE\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Nozzle line purge. Algorithm: {zclear}\"\n\n{% set macro_name = zclear | lower %}\n{% set macro_key = \"gcode_macro \" + macro_name %}\n{% set macro_settings = printer.configfile.settings.get(macro_key) %}\n{% if macro_settings is none %}\nRESPOND TYPE=error MSG=\"{macro_name|upper} - this cleanup macro does NOT exist. LINE_PURGE is used. Add the {macro_name|upper} macro to mod_data/user.cfg or disable the use of the cleanup line // SAVE_ZMOD_DATA DISABLE_PRIMING=1\"\nRESPOND TYPE=echo MSG=\"Available macros:\"\nRESPOND TYPE=echo MSG=\"LINE_PURGE // SAVE_ZMOD_DATA CLEAR=LINE_PURGE\"\nRESPOND TYPE=echo MSG=\"_CLEAR1 // SAVE_ZMOD_DATA CLEAR=_CLEAR1\"\nRESPOND TYPE=echo MSG=\"_CLEAR2 // SAVE_ZMOD_DATA CLEAR=_CLEAR2\"\nRESPOND TYPE=echo MSG=\"_CLEAR3 // SAVE_ZMOD_DATA CLEAR=_CLEAR3\"\nRESPOND TYPE=echo MSG=\"_CLEAR4 // SAVE_ZMOD_DATA CLEAR=_CLEAR4\"\n{% set zzclear = \"LINE_PURGE\" %}\n{% else %}\n{% set zzclear = zclear | upper %}\n{% endif %}\n\n{% if ( (force_kamp == True) or (zuse_kamp == 1) ) and (zzclear == \"_CLEAR1\" or zzclear == \"_CLEAR2\" or zzclear == \"_CLEAR3\" or zzclear == \"_CLEAR4\") %}\nRESPOND PREFIX=\"info\" MSG=\"You are using KAMP. Recommended to use LINE_PURGE: // SAVE_ZMOD_DATA CLEAR=LINE_PURGE\"\nRESPOND PREFIX=\"info\" MSG=\"LINE_PURGE forced\"\nM400\nLINE_PURGE\nM400\n{% else %}\n_TEST_MIN_MAX\nM400\nSAVE_GCODE_STATE NAME=clear_state\nM400\n\n{% if zzclear != \"LINE_PURGE\" %}\nEXCLUDE_OBJECT_DEFINE RESET=1\nZEXCLUDE\n{% endif %}\n\n{% if zzclear != zclear %}\nRESPOND PREFIX=\"info\" MSG=\"{zzclear}\"\n{% endif %}\n{zzclear}\n\nM400\nRESTORE_GCODE_STATE MOVE=0 NAME=clear_state\n{% endif %}\nRESPOND PREFIX=\"info\" MSG=\"END: Nozzle line purge.\"\n{% endif %}\nRESPOND TYPE=echo MSG=\"START_PRINT has finished its work.\""
+      },
+      "gcode_macro _CANCEL_PRINT": {
+        "variable_cancel_send": "0",
+        "gcode": ""
+      },
+      "gcode_macro CANCEL_PRINT": {
+        "description": "Cancel the actual running print",
+        "rename_existing": "CANCEL_PRINT_BASE",
+        "gcode": "\n\n{% set client = printer['gcode_macro _CLIENT_VARIABLE'] | default({}) %}\n{% set allow_park = client.park_at_cancel | default(false) | lower == 'true' %}\n{% set retract = client.cancel_retract | default(5.0) | abs %}\n\n{% set park_x = \"\" if (client.park_at_cancel_x | default(none) is none)\nelse \"X=\" ~ client.park_at_cancel_x %}\n{% set park_y = \"\" if (client.park_at_cancel_y | default(none) is none)\nelse \"Y=\" ~ client.park_at_cancel_y %}\n{% set custom_park = park_x | length > 0 or park_y | length > 0 %}\n\n\n{% if printer['gcode_macro RESUME'].restore_idle_timeout > 0 %}\nSET_IDLE_TIMEOUT TIMEOUT={printer['gcode_macro RESUME'].restore_idle_timeout}\n{% endif %}\n{% if (custom_park or not printer.pause_resume.is_paused) and allow_park %} _TOOLHEAD_PARK_PAUSE_CANCEL {park_x} {park_y} {% endif %}\n_CLIENT_RETRACT LENGTH={retract}\nTURN_OFF_HEATERS\nM106 S0\n{client.user_cancel_macro | default(\"\")}\nSET_GCODE_VARIABLE MACRO=RESUME VARIABLE=idle_state VALUE=False\n\nSET_PAUSE_NEXT_LAYER ENABLE=0\nSET_PAUSE_AT_LAYER ENABLE=0 LAYER=0\nCANCEL_PRINT_BASE"
+      },
+      "gcode_macro PAUSE": {
+        "description": "Pause the actual running print",
+        "rename_existing": "PAUSE_BASE",
+        "gcode": "\n\n{% set client = printer['gcode_macro _CLIENT_VARIABLE'] | default({}) %}\n{% set idle_timeout = client.idle_timeout | default(0) %}\n{% set temp = printer[printer.toolhead.extruder].target if printer.toolhead.extruder != '' else 0 %}\n{% set heater_bed_temp = printer.heater_bed.target %}\n{% set current_speed = printer[\"gcode_move\"].speed_factor %}\n{% set restore = False if printer.toolhead.extruder == ''\nelse True  if params.RESTORE | default(1) | int == 1 else False %}\n{% set runout_resume = True if client.runout_sensor | default(\"\") == \"\"\nelse True if not printer[client.runout_sensor].enabled\nelse printer[client.runout_sensor].filament_detected %}\n{% set fan_speed = printer[\"fan_generic fanM106\"].speed %}\n{% set pos = printer.gcode_move.gcode_position %}\n\n\nRESPOND TYPE=echo MSG=\"Pause: Restore: {restore}, Temp: {temp}/{heater_bed_temp}\"\nSET_GCODE_VARIABLE MACRO=RESUME VARIABLE=last_extruder_temp VALUE=\"{{'restore': restore, 'temp': temp, 'heater_bed_temp': heater_bed_temp, 'speed': current_speed, 'fan_speed': fan_speed, 'x': pos.x, 'y': pos.y}}\"\n\n{% if idle_timeout > 0 %}\nSET_GCODE_VARIABLE MACRO=RESUME VARIABLE=restore_idle_timeout VALUE={printer.configfile.settings.idle_timeout.timeout}\nSET_IDLE_TIMEOUT TIMEOUT={idle_timeout}\n{% endif %}\nPAUSE_BASE\n\n{% set midi_pause = printer.save_variables.variables['midi_pause']|default(\"\") | string %}\n{% if midi_pause != \"\" %}\nPLAY_MIDI FILE={midi_pause}\n{% endif %}\n\n{client.user_pause_macro | default(\"\")}\n_TOOLHEAD_PARK_PAUSE_CANCEL {rawparams}\n{% if not client.ad5x %}\nUPDATE_DELAYED_GCODE ID=_GOTO_PAUSE DURATION=1\n{% endif %}"
+      },
+      "gcode_macro RESUME": {
+        "description": "Resume the actual running print",
+        "rename_existing": "RESUME_BASE",
+        "variable_last_extruder_temp": "{'restore': False, 'temp': 0, 'heater_bed_temp': 80, 'speed': 100, 'fan_speed': 0, 'x': 0, 'y': 0}",
+        "variable_restore_idle_timeout": "0",
+        "variable_idle_state": "False",
+        "variable_force_restore": "True",
+        "gcode": "\n\n{% set client = printer['gcode_macro _CLIENT_VARIABLE'] | default({}) %}\n{% set velocity = printer.configfile.settings.pause_resume.recover_velocity %}\n{% set sp_move = client.speed_move | default(velocity) %}\n{% set runout_resume = True if client.runout_sensor | default(\"\") == \"\"\nelse True if not printer[client.runout_sensor].enabled\nelse printer[client.runout_sensor].filament_detected %}\n{% set can_extrude = True if printer.toolhead.extruder == ''\nelse printer[printer.toolhead.extruder].can_extrude %}\n{% set do_resume = False %}\n{% set prompt_txt = [] %}\n\n\nRESPOND TYPE=echo MSG=\"Resume: Restore: {last_extruder_temp.restore}, Temp: {last_extruder_temp.temp}/{last_extruder_temp.heater_bed_temp}, Status: {printer.idle_timeout.state | upper}\"\n{% if printer.idle_timeout.state | upper == \"IDLE\" or idle_state or force_restore %}\nSET_GCODE_VARIABLE MACRO=RESUME VARIABLE=idle_state VALUE=False\n{% if last_extruder_temp.restore %}\n\nRESPOND TYPE=echo MSG='{\"Restoring \\\"%s\\\" temperature to %3.1f/%3.1f\\u00B0C Fan: %3.1f\" % (printer.toolhead.extruder, last_extruder_temp.temp, last_extruder_temp.heater_bed_temp, last_extruder_temp.fan_speed) }'\n\n_WAIT_TEMP EXTRUDER_TEMP={last_extruder_temp.temp} BED_TEMP={last_extruder_temp.heater_bed_temp} NAME=RESUME\n\n\n\n\n\n\nSET_FAN_SPEED FAN=fanM106 SPEED={last_extruder_temp.fan_speed}\n{% set do_resume = True %}\n{% elif can_extrude %}\n{% set do_resume = True %}\n{% else %}\nRESPOND TYPE=error MSG='{\"Resumption interrupted !!! \\\"%s\\\" is not hot enough (1), please heat it up and press RESUME again\" % printer.toolhead.extruder}'\n{% set _d = prompt_txt.append(\"\\\"%s\\\" is not hot enough, please heat it up and press RESUME again\" % printer.toolhead.extruder) %}\n{% endif %}\n\n{% elif can_extrude %}\n{% set do_resume = True %}\n{% else %}\nRESPOND TYPE=error MSG='{\"Resumption interrupted !!! \\\"%s\\\" is not hot enough (2), please heat it up and press RESUME again\" % printer.toolhead.extruder}'\n{% set _d = prompt_txt.append(\"\\\"%s\\\" is not hot enough, please heat it up and press RESUME again\" % printer.toolhead.extruder) %}\n{% endif %}\n{% if runout_resume %}\n{% if do_resume %}\n{% if restore_idle_timeout > 0 %} SET_IDLE_TIMEOUT TIMEOUT={restore_idle_timeout} {% endif %}\n{client.user_resume_macro | default(\"\")}\n_CLIENT_EXTRUDE\n{% if last_extruder_temp.y > client.max_y %}\nG1 Y{client.max_y} F{params.VELOCITY | default(sp_move)}\nM400\nG1 X{last_extruder_temp.x} F{params.VELOCITY | default(sp_move)}\nM400\n{% endif %}\nRESUME_BASE VELOCITY={params.VELOCITY | default(sp_move)}\n{% endif %}\n{% else %}\nRESPOND TYPE=error MSG='{\"Resumption interrupted !!! \\\"%s\\\" has detected that the filament has run out, please load it and press RESUME\" % (client.runout_sensor.split(\" \"))[1]}'\n{% set _d = prompt_txt.append(\"\\\"%s\\\" has detected that the filament has run out, please load it and press RESUME\" % (client.runout_sensor.split(\" \"))[1]) %}\n{% endif %}\n\n{% if not (runout_resume and do_resume) %}\nRESPOND TYPE=command MSG=\"action:prompt_beginResumption interrupted!!!\"\n{% for element in prompt_txt %}\nRESPOND TYPE=command MSG='{\"action:prompt_text %s\" % element}'\n{% endfor %}\nRESPOND TYPE=command MSG=\"action:prompt_footer_button Ok|RESPOND TYPE=command MSG=action:prompt_end|info\"\nRESPOND TYPE=command MSG=\"action:prompt_show\"\n{% endif %}\n\n\n\nM400"
+      },
+      "gcode_macro START_PRINT": {
+        "description": "Replace default start G-code",
+        "variable_screen": "False",
+        "gcode": "\n{% set extruder_temp = params.EXTRUDER_TEMP|default(245)|float %}\n{% set bed_temp = params.BED_TEMP|default(80)|float %}\n{% set force_kamp = params.FORCE_KAMP|default(False) %}\n{% set force_leveling = params.FORCE_LEVELING|default(False) %}\n{% set skip_leveling = params.SKIP_LEVELING|default(False) %}\n{% set zoffset = params.Z_OFFSET|default(99.0)|float %}\n{% set mesh = params.MESH|default(\"\")|string %}\n{% set internal = params.INTERNAL|default(0)|int %}\n{% set external = params.EXTERNAL|default(0)|int %}\n\n{% if params.FORCE_MD5 %}\n{% set force_md5 = params.FORCE_MD5|default(True) %}\n{% if force_md5 == True %}\n{action_raise_error(\"Parameter FORCE_MD5 moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA FORCE_MD5=1\")}\n{% else %}\n{action_raise_error(\"Parameter FORCE_MD5 moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA FORCE_MD5=0\")}\n{% endif %}\n{% endif %}\n\n{% if params.DISABLE_PRIMING %}\n{% set disable_priming = params.DISABLE_PRIMING|default(False) %}\n{% if disable_priming == True %}\n{action_raise_error(\"Parameter DISABLE_PRIMING moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA DISABLE_PRIMING=1\")}\n{% else %}\n{action_raise_error(\"Parameter DISABLE_PRIMING moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA DISABLE_PRIMING=0\")}\n{% endif %}\n{% endif %}\n\n{% if params.DISABLE_SKEW_CORRECT %}\n{% set disable_skew = params.DISABLE_SKEW_CORRECT|default(True) %}\n{% if disable_skew == True %}\n{action_raise_error(\"Parameter DISABLE_SKEW_CORRECT moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA DISABLE_SKEW=1\")}\n{% else %}\n{action_raise_error(\"Parameter DISABLE_SKEW_CORRECT moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA DISABLE_SKEW=0\")}\n{% endif %}\n{% endif %}\n\n{% if params.CLEAR %}\n{% set clear = params.CLEAR|default(\"_CLEAR1\")|string %}\n{action_raise_error(\"Parameter CLEAR moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA CLEAR=\" + clear)}\n{% endif %}\n\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zforce_kamp VALUE={force_kamp|int}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zbed_temp VALUE={bed_temp|float}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zextruder_temp VALUE={extruder_temp|float}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zforce_leveling VALUE={force_leveling}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zforce_kamp VALUE={force_kamp}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zskip_leveling VALUE={skip_leveling}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zzoffset VALUE={zoffset|float}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zmesh VALUE='\"{mesh|string}\"'\n\n_START_PRINT\n\n{% if internal == 1 %}\nAIR_CIRCULATION_INTERNAL\n{% endif %}\n{% if external == 1 %}\nAIR_CIRCULATION_EXTERNAL\n{% endif %}\n_USER_START_PRINT"
+      },
+      "probe": {
+        "z_offset": "-0.25",
+        "speed": "0.4",
+        "first_probe_speed": "5",
+        "samples": "3",
+        "samples_tolerance": "0.02"
+      },
+      "bed_mesh": {
+        "probe_count": "[33, 33]",
+        "mesh_min": "[0.0, 0.0]",
+        "mesh_max": "[214.72, 214.72]"
+      },
+      "extruder": {
+        "max_temp": "300.0",
+        "filament_diameter": "1.75",
+        "max_extrude_cross_section": "5.0"
+      },
+      "heater_bed": {
+        "max_temp": "130.0"
+      },
+      "idle_timeout": {
+        "timeout": "1800.0"
+      },
+      "pause_resume": {
+        "recover_velocity": "50.0"
+      },
+      "virtual_sdcard": {
+        "path": "/usr/data/gcodes",
+        "on_error_gcode": "TURN_OFF_HEATERS"
+      },
+      "zmod": {
+        "language": "en",
+        "screen": "False",
+        "ad5x": "True"
+      },
+      "gcode_macro _CLIENT_VARIABLE": {
+        "gcode": "",
+        "variable_min_x": "0.0",
+        "variable_min_y": "0.0",
+        "variable_max_x": "220.0",
+        "variable_max_y": "220.0",
+        "variable_runout_sensor": "''",
+        "variable_runout_sensor2": "''",
+        "variable_use_custom_pos": "False",
+        "variable_use_fw_retract": "False",
+        "variable_ad5x": "True",
+        "variable_park_at_cancel": "False",
+        "variable_idle_timeout": "0",
+        "variable_retract": "0.5",
+        "variable_unretract": "0.5",
+        "variable_cancel_retract": "5.0",
+        "variable_speed_retract": "35.0",
+        "variable_speed_unretract": "35.0"
+      },
+      "gcode_macro _KAMP_Settings": {
+        "gcode": "",
+        "variable_purge_height": "0.8",
+        "variable_purge_margin": "20.0",
+        "variable_purge_amount": "30.0",
+        "variable_flow_rate": "12.0",
+        "variable_tip_distance": "0.0",
+        "variable_smart_park_height": "5.0",
+        "variable_mesh_margin": "5.0",
+        "variable_fuzz_amount": "0.0",
+        "variable_verbose_enable": "True",
+        "variable_probe_dock_enable": "False",
+        "variable_attach_macro": "''",
+        "variable_detach_macro": "''"
+      },
+      "gcode_macro _SCREEN": {
+        "gcode": "",
+        "variable_screen": "False"
+      }
+    },
+    "settings": {
+      "probe": {
+        "z_offset": -0.25,
+        "speed": 0.4,
+        "first_probe_speed": "5",
+        "samples": 3,
+        "samples_tolerance": 0.02
+      },
+      "bed_mesh": {
+        "probe_count": [
+          33,
+          33
+        ],
+        "mesh_min": [
+          0.0,
+          0.0
+        ],
+        "mesh_max": [
+          214.72,
+          214.72
+        ]
+      },
+      "extruder": {
+        "max_temp": 300.0,
+        "filament_diameter": 1.75,
+        "max_extrude_cross_section": 5.0
+      },
+      "heater_bed": {
+        "max_temp": 130.0
+      },
+      "idle_timeout": {
+        "timeout": 1800.0
+      },
+      "pause_resume": {
+        "recover_velocity": 50.0
+      },
+      "virtual_sdcard": {
+        "path": "/usr/data/gcodes",
+        "on_error_gcode": "TURN_OFF_HEATERS"
+      },
+      "zmod": {
+        "language": "en",
+        "screen": false,
+        "ad5x": true
+      },
+      "gcode_macro _full_bed_level": {
+        "description": "Bed calibration without temperature off",
+        "gcode": "\n{% set extruder_temp = params.EXTRUDER_TEMP|default(240)|float %}\n{% set bed_temp = params.BED_TEMP|default(80)|float %}\n{% set profile = params.PROFILE|default(\"auto\") %}\n\nRESPOND PREFIX=\"info\" MSG=\"Bed calibration. Profile {profile}. Extruder temp: {extruder_temp} / Bed temp: {bed_temp}\"\n\nBED_MESH_CLEAR FROM=_FULL_BED_LEVEL\nM400\n\n_ORIG_CLEAR_NOZZLE EXTRUDER_TEMP={extruder_temp} BED_TEMP={bed_temp}\n\n\n_BED_MESH_CALIBRATE PROFILE=\"{profile}\"\n\n_UGOL_PARK"
+      },
+      "gcode_macro kamp": {
+        "description": "Adaptive bed",
+        "gcode": "\n{% set extruder_temp = params.EXTRUDER_TEMP|default(240)|float %}\n{% set bed_temp = params.BED_TEMP|default(80)|float %}\n{% set client = printer['gcode_macro _CLIENT_VARIABLE'] | default({}) %}\n\nBED_MESH_CLEAR FROM=KAMP\nM400\n\n_ORIG_CLEAR_NOZZLE EXTRUDER_TEMP={extruder_temp} BED_TEMP={bed_temp}\n\nM400\n_KAMP_BED_MESH_CALIBRATE\nM400\n\n_SMART_PARK\nM400\n\n_WAIT_TEMP EXTRUDER_TEMP={extruder_temp} BED_TEMP={bed_temp} NAME=KAMP"
+      },
+      "gcode_macro _start_print": {
+        "description": "Replace default start G-code",
+        "variable_zextruder_temp": "245.0",
+        "variable_zbed_temp": "80.0",
+        "variable_zforce_kamp": "False",
+        "variable_zforce_leveling": "False",
+        "variable_zskip_leveling": "False",
+        "variable_zzoffset": "99.0",
+        "variable_zmesh": "\"\"",
+        "gcode": "\n{% set force_kamp = printer[\"gcode_macro _START_PRINT\"].zforce_kamp %}\n{% set extruder_temp = printer[\"gcode_macro _START_PRINT\"].zextruder_temp|float %}\n{% set bed_temp = printer[\"gcode_macro _START_PRINT\"].zbed_temp|float %}\n{% set force_leveling = printer[\"gcode_macro _START_PRINT\"].zforce_leveling %}\n{% set zoffset = printer[\"gcode_macro _START_PRINT\"].zzoffset %}\n{% set skip_leveling = printer[\"gcode_macro _START_PRINT\"].zskip_leveling %}\n{% set mesh = printer[\"gcode_macro _START_PRINT\"].zmesh %}\n\n{% set filename = printer.virtual_sdcard.file_path|default(\"\")|string  %}\n\n{% set force_md5 = printer.save_variables.variables['force_md5']|default(1) | int %}\n{% set disable_priming = printer.save_variables.variables['disable_priming']|default(0) | int %}\n{% set disable_skew = printer.save_variables.variables['disable_skew']|default(1) | int %}\n{% set load_zoffset = printer.save_variables.variables['load_zoffset']|default(1) | int %}\n{% set zclear = printer.save_variables.variables['clear']|default(\"LINE_PURGE\")|string %}\n{% set zuse_kamp = printer.save_variables.variables['use_kamp']|default(0) | int %}\n{% set zprint_leveling = printer.save_variables.variables['print_leveling']|default(0) | int %}\n\n{% set screen = printer[\"gcode_macro _SCREEN\"].screen %}\n{% set client = printer['gcode_macro _CLIENT_VARIABLE'] | default({}) %}\n\n_PREPARE_PRINT\n\nCLEAR_PAUSE\nZCONTROL_AUTO\nZCONTROL_ON\nSET_GCODE_VARIABLE MACRO=_CANCEL_PRINT VARIABLE=cancel_send VALUE=0\nZSSH_RELOAD\n\nRESPOND PREFIX=\"info\" MSG=\"START_PRINT BED_TEMP={bed_temp} EXTRUDER_TEMP={extruder_temp} FORCE_LEVELING={force_leveling} FORCE_KAMP={force_kamp} Z_OFFSET={zoffset} SKIP_LEVELING={skip_leveling} MESH={mesh}\"\n\nRESPOND PREFIX=\"info\" MSG=\"Extruder temperature: {extruder_temp}\"\nRESPOND PREFIX=\"info\" MSG=\"Bed temperature: {bed_temp}\"\n\n{% if zprint_leveling == 0 %}\n{% if force_kamp == True %}\nRESPOND PREFIX=\"info\" MSG=\"KAMP: enabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"KAMP: disabled\"\n{% endif %}\n\n{% if force_leveling == True %}\nRESPOND PREFIX=\"info\" MSG=\"Forced bed leveling: enabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Forced bed leveling: disabled\"\n{% endif %}\n\n{% if skip_leveling == True %}\nRESPOND PREFIX=\"info\" MSG=\"Skip bed leveling: enabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Skip bed leveling: disabled\"\n{% endif %}\n\nRESPOND PREFIX=\"info\" MSG=\"Load bed mesh: {mesh}\"\n{% endif %}\n\n{% if screen == False %}\n{% if force_md5 == 1 %}\nRESPOND PREFIX=\"info\" MSG=\"MD5: enabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"MD5: disabled\"\n{% endif %}\n{% endif %}\n\n{% if disable_priming == 1 %}\nRESPOND PREFIX=\"info\" MSG=\"Nozzle priming: disabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Nozzle priming: enabled\"\nRESPOND PREFIX=\"info\" MSG=\"Priming algorithm: {zclear}\"\n{% endif %}\n\n{% if disable_skew == 1 %}\nRESPOND PREFIX=\"info\" MSG=\"SKEW: disabled\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"SKEW: enabled\"\n{% endif %}\n\n{% set check_md5 = printer.save_variables.variables['check_md5']|default(0) | int %}\n{% if ( force_md5 == 1 and check_md5 == 0 ) %}\nRESPOND PREFIX=\"info\" MSG=\"MD5 check started\"\nCHECK_MD5 DELETE=True\n{% endif %}\n\nM140 S{bed_temp}\nSET_SKEW CLEAR=1\n\n_G28\n\n{% if not client.ad5x %}\n{% set we = printer['temperature_sensor weightValue'].temperature %}\n{% if we != 0 %}\nLOAD_CELL_TARE\n{% endif %}\n{% endif %}\n\n{% if zprint_leveling == 1 %}\n{% if screen == True %}\nRESPOND PREFIX=\"//\" MSG=\"Building bed mesh with native screen on each print. // SAVE_ZMOD_DATA PRINT_LEVELING={zprint_leveling}\"\n{% else %}\nRESPOND PREFIX=\"//\" MSG=\"Building bed mesh on each print. // SAVE_ZMOD_DATA PRINT_LEVELING={zprint_leveling}\"\nBED_MESH_CLEAR FROM=_START_PRINT\nM400\n{% if zuse_kamp == 1 %}\nRESPOND PREFIX=\"info\" MSG=\"Using KAMP from global settings. // SAVE_ZMOD_DATA USE_KAMP={zuse_kamp}\"\nM400\nKAMP BED_TEMP={bed_temp} EXTRUDER_TEMP={extruder_temp}\nM400\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Building full bed mesh. // SAVE_ZMOD_DATA USE_KAMP={zuse_kamp}\"\nM400\n_FULL_BED_LEVEL BED_TEMP={bed_temp} EXTRUDER_TEMP={extruder_temp}\nM400\n{% endif %}\n{% endif %}\n\nRESPOND PREFIX=\"//\" MSG=\"All START_PRINT parameters for bed leveling are ignored\"\n{% else %}\n{% if mesh != \"\" %}\nRESPOND PREFIX=\"info\" MSG=\"Trying to load bed mesh: {mesh}\"\nBED_MESH_CLEAR FROM=_START_PRINT\nM400\n{% for mesh_dt in printer['bed_mesh'].profiles %}\n{% if mesh == mesh_dt %}\nBED_MESH_PROFILE LOAD={mesh} FROM=_START_PRINT\nRESPOND PREFIX=\"info\" MSG=\"Bed mesh {mesh} loaded\"\n{% endif %}\n{% endfor %}\n{% endif %}\n\n_START_MESH\n{% endif %}\n\n\n{% if disable_skew == 0 %}\nRESPOND PREFIX=\"info\" MSG=\"Loading skew_profile\"\nSKEW_PROFILE LOAD=skew_profile\n{% endif %}\n\nG90\n{% if (zprint_leveling == 0 and force_kamp == True) or (zprint_leveling == 1 and screen == False and zuse_kamp == 1) or (zclear == \"LINE_PURGE\" and client.ad5x == 0 ) %}\n_SMART_PARK\n{% else %}\n_UGOL_PARK\n{% endif %}\n\n\n\n\n_WAIT_TEMP EXTRUDER_TEMP={extruder_temp} BED_TEMP={bed_temp} NAME=START_PRINT\n\n{% if client.ad5x %}\n{% if not ( (zprint_leveling == 0 and force_kamp == True ) or ( zprint_leveling == 1 and screen == False and zuse_kamp == 1 ) ) %}\n_PRINT_CLEAR_NOZZLE\n{% endif %}\nM400\n_SMART_PARK\n{% endif %}\n\n{% if (load_zoffset == 1) and (screen == False) %}\nRESPOND PREFIX=\"info\" MSG=\"Using global Z-Offset control. Z_OFFSET parameter ignored\"\nLOAD_GCODE_OFFSET\n{% else %}\n{% if (load_zoffset == 1) and (screen == True) %}\nRESPOND PREFIX=\"info\" MSG=\"Global Z-Offset load: ignored (working with screen)\"\n{% endif %}\n\n{% if zoffset == 99.0 %}\nRESPOND PREFIX=\"info\" MSG=\"Z-Offset setup skipped\"\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Setting Z-Offset {zoffset}\"\n_SET_GCODE_OFFSET_FAST Z={zoffset} FROM=START_PRINT\n{% endif %}\n{% endif %}\n\n{% set mesh_test = printer.save_variables.variables['mesh_test']|default(1) | int %}\n{% if mesh_test == 0 or force_kamp == True or zprint_leveling == 1 or force_leveling == True %}\n_PRINT_MESH\n{% else %}\n_MESH_TEST\n{% endif %}\n\n{% if printer.gcode_move.gcode_position.z < 5 %}\nG1 Z5 F3000\n{% endif %}\n\n{% set zmidi_start = printer.save_variables.variables['midi_start']|default(\"\") | string %}\n\n{% if zmidi_start != \"\" %}\nPLAY_MIDI FILE={zmidi_start}\n{% endif %}\n\n{% if disable_priming == 1 %}\nRESPOND PREFIX=\"info\" MSG=\"Nozzle line purge disabled. DISABLE_PRIMING={disable_priming}\"\nEXCLUDE_OBJECT_DEFINE RESET=1\nZEXCLUDE\n{% else %}\nRESPOND PREFIX=\"info\" MSG=\"Nozzle line purge. Algorithm: {zclear}\"\n\n{% set macro_name = zclear | lower %}\n{% set macro_key = \"gcode_macro \" + macro_name %}\n{% set macro_settings = printer.configfile.settings.get(macro_key) %}\n{% if macro_settings is none %}\nRESPOND TYPE=error MSG=\"{macro_name|upper} - this cleanup macro does NOT exist. LINE_PURGE is used. Add the {macro_name|upper} macro to mod_data/user.cfg or disable the use of the cleanup line // SAVE_ZMOD_DATA DISABLE_PRIMING=1\"\nRESPOND TYPE=echo MSG=\"Available macros:\"\nRESPOND TYPE=echo MSG=\"LINE_PURGE // SAVE_ZMOD_DATA CLEAR=LINE_PURGE\"\nRESPOND TYPE=echo MSG=\"_CLEAR1 // SAVE_ZMOD_DATA CLEAR=_CLEAR1\"\nRESPOND TYPE=echo MSG=\"_CLEAR2 // SAVE_ZMOD_DATA CLEAR=_CLEAR2\"\nRESPOND TYPE=echo MSG=\"_CLEAR3 // SAVE_ZMOD_DATA CLEAR=_CLEAR3\"\nRESPOND TYPE=echo MSG=\"_CLEAR4 // SAVE_ZMOD_DATA CLEAR=_CLEAR4\"\n{% set zzclear = \"LINE_PURGE\" %}\n{% else %}\n{% set zzclear = zclear | upper %}\n{% endif %}\n\n{% if ( (force_kamp == True) or (zuse_kamp == 1) ) and (zzclear == \"_CLEAR1\" or zzclear == \"_CLEAR2\" or zzclear == \"_CLEAR3\" or zzclear == \"_CLEAR4\") %}\nRESPOND PREFIX=\"info\" MSG=\"You are using KAMP. Recommended to use LINE_PURGE: // SAVE_ZMOD_DATA CLEAR=LINE_PURGE\"\nRESPOND PREFIX=\"info\" MSG=\"LINE_PURGE forced\"\nM400\nLINE_PURGE\nM400\n{% else %}\n_TEST_MIN_MAX\nM400\nSAVE_GCODE_STATE NAME=clear_state\nM400\n\n{% if zzclear != \"LINE_PURGE\" %}\nEXCLUDE_OBJECT_DEFINE RESET=1\nZEXCLUDE\n{% endif %}\n\n{% if zzclear != zclear %}\nRESPOND PREFIX=\"info\" MSG=\"{zzclear}\"\n{% endif %}\n{zzclear}\n\nM400\nRESTORE_GCODE_STATE MOVE=0 NAME=clear_state\n{% endif %}\nRESPOND PREFIX=\"info\" MSG=\"END: Nozzle line purge.\"\n{% endif %}\nRESPOND TYPE=echo MSG=\"START_PRINT has finished its work.\""
+      },
+      "gcode_macro _cancel_print": {
+        "variable_cancel_send": "0",
+        "gcode": ""
+      },
+      "gcode_macro cancel_print": {
+        "description": "Cancel the actual running print",
+        "rename_existing": "CANCEL_PRINT_BASE",
+        "gcode": "\n\n{% set client = printer['gcode_macro _CLIENT_VARIABLE'] | default({}) %}\n{% set allow_park = client.park_at_cancel | default(false) | lower == 'true' %}\n{% set retract = client.cancel_retract | default(5.0) | abs %}\n\n{% set park_x = \"\" if (client.park_at_cancel_x | default(none) is none)\nelse \"X=\" ~ client.park_at_cancel_x %}\n{% set park_y = \"\" if (client.park_at_cancel_y | default(none) is none)\nelse \"Y=\" ~ client.park_at_cancel_y %}\n{% set custom_park = park_x | length > 0 or park_y | length > 0 %}\n\n\n{% if printer['gcode_macro RESUME'].restore_idle_timeout > 0 %}\nSET_IDLE_TIMEOUT TIMEOUT={printer['gcode_macro RESUME'].restore_idle_timeout}\n{% endif %}\n{% if (custom_park or not printer.pause_resume.is_paused) and allow_park %} _TOOLHEAD_PARK_PAUSE_CANCEL {park_x} {park_y} {% endif %}\n_CLIENT_RETRACT LENGTH={retract}\nTURN_OFF_HEATERS\nM106 S0\n{client.user_cancel_macro | default(\"\")}\nSET_GCODE_VARIABLE MACRO=RESUME VARIABLE=idle_state VALUE=False\n\nSET_PAUSE_NEXT_LAYER ENABLE=0\nSET_PAUSE_AT_LAYER ENABLE=0 LAYER=0\nCANCEL_PRINT_BASE"
+      },
+      "gcode_macro pause": {
+        "description": "Pause the actual running print",
+        "rename_existing": "PAUSE_BASE",
+        "gcode": "\n\n{% set client = printer['gcode_macro _CLIENT_VARIABLE'] | default({}) %}\n{% set idle_timeout = client.idle_timeout | default(0) %}\n{% set temp = printer[printer.toolhead.extruder].target if printer.toolhead.extruder != '' else 0 %}\n{% set heater_bed_temp = printer.heater_bed.target %}\n{% set current_speed = printer[\"gcode_move\"].speed_factor %}\n{% set restore = False if printer.toolhead.extruder == ''\nelse True  if params.RESTORE | default(1) | int == 1 else False %}\n{% set runout_resume = True if client.runout_sensor | default(\"\") == \"\"\nelse True if not printer[client.runout_sensor].enabled\nelse printer[client.runout_sensor].filament_detected %}\n{% set fan_speed = printer[\"fan_generic fanM106\"].speed %}\n{% set pos = printer.gcode_move.gcode_position %}\n\n\nRESPOND TYPE=echo MSG=\"Pause: Restore: {restore}, Temp: {temp}/{heater_bed_temp}\"\nSET_GCODE_VARIABLE MACRO=RESUME VARIABLE=last_extruder_temp VALUE=\"{{'restore': restore, 'temp': temp, 'heater_bed_temp': heater_bed_temp, 'speed': current_speed, 'fan_speed': fan_speed, 'x': pos.x, 'y': pos.y}}\"\n\n{% if idle_timeout > 0 %}\nSET_GCODE_VARIABLE MACRO=RESUME VARIABLE=restore_idle_timeout VALUE={printer.configfile.settings.idle_timeout.timeout}\nSET_IDLE_TIMEOUT TIMEOUT={idle_timeout}\n{% endif %}\nPAUSE_BASE\n\n{% set midi_pause = printer.save_variables.variables['midi_pause']|default(\"\") | string %}\n{% if midi_pause != \"\" %}\nPLAY_MIDI FILE={midi_pause}\n{% endif %}\n\n{client.user_pause_macro | default(\"\")}\n_TOOLHEAD_PARK_PAUSE_CANCEL {rawparams}\n{% if not client.ad5x %}\nUPDATE_DELAYED_GCODE ID=_GOTO_PAUSE DURATION=1\n{% endif %}"
+      },
+      "gcode_macro resume": {
+        "description": "Resume the actual running print",
+        "rename_existing": "RESUME_BASE",
+        "variable_last_extruder_temp": "{'restore': False, 'temp': 0, 'heater_bed_temp': 80, 'speed': 100, 'fan_speed': 0, 'x': 0, 'y': 0}",
+        "variable_restore_idle_timeout": "0",
+        "variable_idle_state": "False",
+        "variable_force_restore": "True",
+        "gcode": "\n\n{% set client = printer['gcode_macro _CLIENT_VARIABLE'] | default({}) %}\n{% set velocity = printer.configfile.settings.pause_resume.recover_velocity %}\n{% set sp_move = client.speed_move | default(velocity) %}\n{% set runout_resume = True if client.runout_sensor | default(\"\") == \"\"\nelse True if not printer[client.runout_sensor].enabled\nelse printer[client.runout_sensor].filament_detected %}\n{% set can_extrude = True if printer.toolhead.extruder == ''\nelse printer[printer.toolhead.extruder].can_extrude %}\n{% set do_resume = False %}\n{% set prompt_txt = [] %}\n\n\nRESPOND TYPE=echo MSG=\"Resume: Restore: {last_extruder_temp.restore}, Temp: {last_extruder_temp.temp}/{last_extruder_temp.heater_bed_temp}, Status: {printer.idle_timeout.state | upper}\"\n{% if printer.idle_timeout.state | upper == \"IDLE\" or idle_state or force_restore %}\nSET_GCODE_VARIABLE MACRO=RESUME VARIABLE=idle_state VALUE=False\n{% if last_extruder_temp.restore %}\n\nRESPOND TYPE=echo MSG='{\"Restoring \\\"%s\\\" temperature to %3.1f/%3.1f\\u00B0C Fan: %3.1f\" % (printer.toolhead.extruder, last_extruder_temp.temp, last_extruder_temp.heater_bed_temp, last_extruder_temp.fan_speed) }'\n\n_WAIT_TEMP EXTRUDER_TEMP={last_extruder_temp.temp} BED_TEMP={last_extruder_temp.heater_bed_temp} NAME=RESUME\n\n\n\n\n\n\nSET_FAN_SPEED FAN=fanM106 SPEED={last_extruder_temp.fan_speed}\n{% set do_resume = True %}\n{% elif can_extrude %}\n{% set do_resume = True %}\n{% else %}\nRESPOND TYPE=error MSG='{\"Resumption interrupted !!! \\\"%s\\\" is not hot enough (1), please heat it up and press RESUME again\" % printer.toolhead.extruder}'\n{% set _d = prompt_txt.append(\"\\\"%s\\\" is not hot enough, please heat it up and press RESUME again\" % printer.toolhead.extruder) %}\n{% endif %}\n\n{% elif can_extrude %}\n{% set do_resume = True %}\n{% else %}\nRESPOND TYPE=error MSG='{\"Resumption interrupted !!! \\\"%s\\\" is not hot enough (2), please heat it up and press RESUME again\" % printer.toolhead.extruder}'\n{% set _d = prompt_txt.append(\"\\\"%s\\\" is not hot enough, please heat it up and press RESUME again\" % printer.toolhead.extruder) %}\n{% endif %}\n{% if runout_resume %}\n{% if do_resume %}\n{% if restore_idle_timeout > 0 %} SET_IDLE_TIMEOUT TIMEOUT={restore_idle_timeout} {% endif %}\n{client.user_resume_macro | default(\"\")}\n_CLIENT_EXTRUDE\n{% if last_extruder_temp.y > client.max_y %}\nG1 Y{client.max_y} F{params.VELOCITY | default(sp_move)}\nM400\nG1 X{last_extruder_temp.x} F{params.VELOCITY | default(sp_move)}\nM400\n{% endif %}\nRESUME_BASE VELOCITY={params.VELOCITY | default(sp_move)}\n{% endif %}\n{% else %}\nRESPOND TYPE=error MSG='{\"Resumption interrupted !!! \\\"%s\\\" has detected that the filament has run out, please load it and press RESUME\" % (client.runout_sensor.split(\" \"))[1]}'\n{% set _d = prompt_txt.append(\"\\\"%s\\\" has detected that the filament has run out, please load it and press RESUME\" % (client.runout_sensor.split(\" \"))[1]) %}\n{% endif %}\n\n{% if not (runout_resume and do_resume) %}\nRESPOND TYPE=command MSG=\"action:prompt_beginResumption interrupted!!!\"\n{% for element in prompt_txt %}\nRESPOND TYPE=command MSG='{\"action:prompt_text %s\" % element}'\n{% endfor %}\nRESPOND TYPE=command MSG=\"action:prompt_footer_button Ok|RESPOND TYPE=command MSG=action:prompt_end|info\"\nRESPOND TYPE=command MSG=\"action:prompt_show\"\n{% endif %}\n\n\n\nM400"
+      },
+      "gcode_macro start_print": {
+        "description": "Replace default start G-code",
+        "variable_screen": "False",
+        "gcode": "\n{% set extruder_temp = params.EXTRUDER_TEMP|default(245)|float %}\n{% set bed_temp = params.BED_TEMP|default(80)|float %}\n{% set force_kamp = params.FORCE_KAMP|default(False) %}\n{% set force_leveling = params.FORCE_LEVELING|default(False) %}\n{% set skip_leveling = params.SKIP_LEVELING|default(False) %}\n{% set zoffset = params.Z_OFFSET|default(99.0)|float %}\n{% set mesh = params.MESH|default(\"\")|string %}\n{% set internal = params.INTERNAL|default(0)|int %}\n{% set external = params.EXTERNAL|default(0)|int %}\n\n{% if params.FORCE_MD5 %}\n{% set force_md5 = params.FORCE_MD5|default(True) %}\n{% if force_md5 == True %}\n{action_raise_error(\"Parameter FORCE_MD5 moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA FORCE_MD5=1\")}\n{% else %}\n{action_raise_error(\"Parameter FORCE_MD5 moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA FORCE_MD5=0\")}\n{% endif %}\n{% endif %}\n\n{% if params.DISABLE_PRIMING %}\n{% set disable_priming = params.DISABLE_PRIMING|default(False) %}\n{% if disable_priming == True %}\n{action_raise_error(\"Parameter DISABLE_PRIMING moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA DISABLE_PRIMING=1\")}\n{% else %}\n{action_raise_error(\"Parameter DISABLE_PRIMING moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA DISABLE_PRIMING=0\")}\n{% endif %}\n{% endif %}\n\n{% if params.DISABLE_SKEW_CORRECT %}\n{% set disable_skew = params.DISABLE_SKEW_CORRECT|default(True) %}\n{% if disable_skew == True %}\n{action_raise_error(\"Parameter DISABLE_SKEW_CORRECT moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA DISABLE_SKEW=1\")}\n{% else %}\n{action_raise_error(\"Parameter DISABLE_SKEW_CORRECT moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA DISABLE_SKEW=0\")}\n{% endif %}\n{% endif %}\n\n{% if params.CLEAR %}\n{% set clear = params.CLEAR|default(\"_CLEAR1\")|string %}\n{action_raise_error(\"Parameter CLEAR moved to SAVE_ZMOD_DATA\\nUse SAVE_ZMOD_DATA CLEAR=\" + clear)}\n{% endif %}\n\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zforce_kamp VALUE={force_kamp|int}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zbed_temp VALUE={bed_temp|float}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zextruder_temp VALUE={extruder_temp|float}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zforce_leveling VALUE={force_leveling}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zforce_kamp VALUE={force_kamp}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zskip_leveling VALUE={skip_leveling}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zzoffset VALUE={zoffset|float}\nSET_GCODE_VARIABLE MACRO=_START_PRINT VARIABLE=zmesh VALUE='\"{mesh|string}\"'\n\n_START_PRINT\n\n{% if internal == 1 %}\nAIR_CIRCULATION_INTERNAL\n{% endif %}\n{% if external == 1 %}\nAIR_CIRCULATION_EXTERNAL\n{% endif %}\n_USER_START_PRINT"
+      },
+      "gcode_macro _client_variable": {
+        "gcode": "",
+        "variable_min_x": "0.0",
+        "variable_min_y": "0.0",
+        "variable_max_x": "220.0",
+        "variable_max_y": "220.0",
+        "variable_runout_sensor": "''",
+        "variable_runout_sensor2": "''",
+        "variable_use_custom_pos": "False",
+        "variable_use_fw_retract": "False",
+        "variable_ad5x": "True",
+        "variable_park_at_cancel": "False",
+        "variable_idle_timeout": "0",
+        "variable_retract": "0.5",
+        "variable_unretract": "0.5",
+        "variable_cancel_retract": "5.0",
+        "variable_speed_retract": "35.0",
+        "variable_speed_unretract": "35.0"
+      },
+      "gcode_macro _kamp_settings": {
+        "gcode": "",
+        "variable_purge_height": "0.8",
+        "variable_purge_margin": "20.0",
+        "variable_purge_amount": "30.0",
+        "variable_flow_rate": "12.0",
+        "variable_tip_distance": "0.0",
+        "variable_smart_park_height": "5.0",
+        "variable_mesh_margin": "5.0",
+        "variable_fuzz_amount": "0.0",
+        "variable_verbose_enable": "True",
+        "variable_probe_dock_enable": "False",
+        "variable_attach_macro": "''",
+        "variable_detach_macro": "''"
+      },
+      "gcode_macro _screen": {
+        "gcode": "",
+        "variable_screen": "False"
+      }
+    }
+  },
+  "webhooks": {
+    "state": "ready",
+    "state_message": ""
+  },
+  "toolhead": {
+    "homed_axes": "xyz",
+    "axis_minimum": [
+      -20.0,
+      -20.0,
+      -10.0,
+      0.0
+    ],
+    "axis_maximum": [
+      225.0,
+      232.0,
+      230.0,
+      0.0
+    ],
+    "position": [
+      50.0,
+      50.0,
+      5.0,
+      0.0
+    ],
+    "max_velocity": 600.0,
+    "max_accel": 20000.0,
+    "square_corner_velocity": 5.0,
+    "minimum_cruise_ratio": 0.5,
+    "extruder": "extruder",
+    "print_time": 0.0,
+    "estimated_print_time": 0.0,
+    "stalls": 0
+  },
+  "save_variables": {
+    "variables": {
+      "gcode_offsets": {
+        "z": -0.08
+      },
+      "mesh_test": 3,
+      "klipper13": 0,
+      "load_zoffset": 1,
+      "print_leveling": 0,
+      "use_kamp": 0,
+      "display_off": 1,
+      "guppy": 1,
+      "check_md5": 1,
+      "force_md5": 1
+    }
+  },
+  "print_stats": {
+    "filename": "test.gcode",
+    "state": "printing",
+    "message": ""
+  },
+  "pause_resume": {
+    "is_paused": false
+  },
+  "idle_timeout": {
+    "state": "Printing"
+  },
+  "virtual_sdcard": {
+    "is_active": true,
+    "file_path": "/usr/data/gcodes/test.gcode",
+    "progress": 0.0,
+    "file_position": 0,
+    "file_size": 0
+  },
+  "extruder": {
+    "temperature": 30.0,
+    "target": 0.0,
+    "can_extrude": true
+  },
+  "heater_bed": {
+    "temperature": 30.0,
+    "target": 0.0
+  },
+  "probe": {
+    "last_z_result": 0.0
+  },
+  "gcode_macro _FULL_BED_LEVEL": {},
+  "gcode_macro KAMP": {},
+  "gcode_macro _START_PRINT": {
+    "zextruder_temp": 245.0,
+    "zbed_temp": 80.0,
+    "zforce_kamp": false,
+    "zforce_leveling": false,
+    "zskip_leveling": false,
+    "zzoffset": 99.0,
+    "zmesh": ""
+  },
+  "gcode_macro _CANCEL_PRINT": {
+    "cancel_send": 0
+  },
+  "gcode_macro CANCEL_PRINT": {},
+  "gcode_macro PAUSE": {},
+  "gcode_macro RESUME": {
+    "last_extruder_temp": {
+      "restore": false,
+      "temp": 0,
+      "heater_bed_temp": 80,
+      "speed": 100,
+      "fan_speed": 0,
+      "x": 0,
+      "y": 0
+    },
+    "restore_idle_timeout": 0,
+    "idle_state": false,
+    "force_restore": true
+  },
+  "gcode_macro START_PRINT": {
+    "screen": false
+  },
+  "gcode_macro _CLIENT_VARIABLE": {
+    "min_x": 0.0,
+    "min_y": 0.0,
+    "max_x": 220.0,
+    "max_y": 220.0,
+    "runout_sensor": "",
+    "runout_sensor2": "",
+    "use_custom_pos": false,
+    "use_fw_retract": false,
+    "ad5x": true,
+    "park_at_cancel": false,
+    "idle_timeout": 0,
+    "retract": 0.5,
+    "unretract": 0.5,
+    "cancel_retract": 5.0,
+    "speed_retract": 35.0,
+    "speed_unretract": 35.0
+  },
+  "gcode_macro _KAMP_Settings": {
+    "purge_height": 0.8,
+    "purge_margin": 20.0,
+    "purge_amount": 30.0,
+    "flow_rate": 12.0,
+    "tip_distance": 0.0,
+    "smart_park_height": 5.0,
+    "mesh_margin": 5.0,
+    "fuzz_amount": 0.0,
+    "verbose_enable": true,
+    "probe_dock_enable": false,
+    "attach_macro": "",
+    "detach_macro": ""
+  },
+  "gcode_macro _SCREEN": {
+    "screen": false
+  }
+}

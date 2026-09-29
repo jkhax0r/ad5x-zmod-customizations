@@ -1,0 +1,80 @@
+{
+  "toolhead": {
+    "homed_axes": "xyz",
+    "axis_minimum": [
+      -20.0,
+      -20.0,
+      -10.0,
+      0.0
+    ],
+    "axis_maximum": [
+      225.0,
+      232.0,
+      230.0,
+      0.0
+    ],
+    "position": [
+      50.0,
+      50.0,
+      5.0,
+      0.0
+    ],
+    "max_velocity": 600.0,
+    "max_accel": 20000.0,
+    "square_corner_velocity": 5.0,
+    "minimum_cruise_ratio": 0.5,
+    "extruder": "extruder",
+    "print_time": 0.0,
+    "estimated_print_time": 0.0,
+    "stalls": 0
+  },
+  "save_variables": {
+    "variables": {
+      "gcode_offsets": {
+        "z": -0.08
+      },
+      "mesh_test": 3,
+      "klipper13": 0,
+      "load_zoffset": 1,
+      "print_leveling": 0,
+      "use_kamp": 0,
+      "display_off": 1,
+      "guppy": 1,
+      "check_md5": 1,
+      "force_md5": 1
+    }
+  },
+  "pause_resume": {
+    "is_paused": false
+  },
+  "gcode_macro _SCREEN": {
+    "screen": false
+  },
+  "gcode_macro _CLIENT_VARIABLE": {
+    "min_x": 0.0,
+    "min_y": 0.0,
+    "max_x": 220.0,
+    "max_y": 220.0,
+    "runout_sensor": "",
+    "runout_sensor2": "",
+    "use_custom_pos": false,
+    "use_fw_retract": false,
+    "ad5x": true,
+    "park_at_cancel": false,
+    "idle_timeout": 0,
+    "retract": 0.5,
+    "unretract": 0.5,
+    "cancel_retract": 5.0,
+    "speed_retract": 35.0,
+    "speed_unretract": 35.0
+  },
+  "gcode_macro _START_PRINT": {
+    "zextruder_temp": 220.0,
+    "zbed_temp": 55.0,
+    "zmesh": "synthetic_33x33",
+    "zforce_leveling": false,
+    "zforce_kamp": false,
+    "zzoffset": 99.0,
+    "zskip_leveling": false
+  }
+}

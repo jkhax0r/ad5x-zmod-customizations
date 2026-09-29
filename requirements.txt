@@ -1,0 +1,2 @@
+# Matches the archived macro-rendering test environment. No printer connection.
+Jinja2==3.1.2
