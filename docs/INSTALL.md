@@ -111,7 +111,11 @@ TIMELAPSE_TAKE_FRAME
 ```
 
 The first line enables parking, the second takes the frame. Neither line selects
-the location. `PARK_ENABLE=False` takes frames in place. An Orca line enabling
+the location. `PARK_ENABLE=False` requests frames while printing continues, with
+no `M400`, added motion, retraction, pause or capture-completion wait. The camera
+capture runs asynchronously, so the head may be moving or obscure the image.
+Parked captures retain `M400` to finish the park move before requesting a frame.
+An Orca line enabling
 parking overrides a Fluidd parking-off choice on each layer, but does not change
 the custom coordinates or lift. The existing purge-path planner conservatively
 protects the old low XY corridor even though this override now raises first.

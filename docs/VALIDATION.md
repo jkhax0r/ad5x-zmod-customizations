@@ -64,3 +64,9 @@ also changed to 2 mm, avoiding a hidden 5 mm floor. An additional native replay
 case checks that corner at first-purge, first-layer and tall-print heights. These
 settings were applied and read back without restarting the ongoing print;
 physical clearance and camera composition at the new corner remain unqualified.
+
+The no-parking branch no longer issues `M400`. The existing native replay tests
+now record the synchronization/frame commands: in-place capture must dispatch
+only the frame request, with no motion, pause or delayed return; parked capture
+must still dispatch `M400` before the frame request. This is a command-path
+check, not a measurement of host latency or nozzle ooze.

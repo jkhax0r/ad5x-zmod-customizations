@@ -53,13 +53,15 @@ class TimelapseHarness(Harness):
             if name.startswith('gcode_macro '): self.objects[name]=macro.GCodeMacro(Config(self,name,dict(parsed[name])))
         for name,values in json.loads((ROOT/'fixtures/vendor-timelapse-setup.json').read_text()).items():
             self.objects[name]=macro.GCodeMacro(Config(self,name,values))
-        callbacks={'M400':lambda c:None,'UPDATE_DELAYED_GCODE':lambda c:self.timers.append(c.get_float('DURATION')),
+        callbacks={'M400':lambda c:self.commands.append('M400'),'UPDATE_DELAYED_GCODE':lambda c:self.timers.append(c.get_float('DURATION')),
                    '_TIMELAPSE_NEW_FRAME':self.frame,'G10':lambda c:self.fw.append('G10'),'G11':lambda c:self.fw.append('G11')}
         for name,callback in callbacks.items(): self.gcode.register_command(name,callback)
         self.send_event('klippy:connect');self.send_event('klippy:ready')
         self.gcode.run_script('_SET_TIMELAPSE_SETUP ENABLE=True PARK_ENABLE=True CUSTOM_POS_X=110 CUSTOM_POS_Y=110 CUSTOM_POS_DZ=2 PARK_POS=custom')
 
-    def frame(self,c): self.frames+=1
+    def frame(self,c):
+        self.frames+=1
+        self.commands.append('FRAME')
     def run(self,command='TIMELAPSE_TAKE_FRAME'): self.gcode.run_script(command)
     def finish(self):
         self.objects['gcode_macro TIMELAPSE_TAKE_FRAME'].variables['takingframe']=False
@@ -82,6 +84,7 @@ class TimelapseTests(unittest.TestCase):
 
     def test_first_purge_lift_before_xy_and_return_before_lowering(self):
         h=TimelapseHarness();h.run();self.assertTrue(h.pause.is_paused)
+        self.assertEqual(h.commands,['M400','FRAME'])
         self.assertEqual(h.frames,1);h.finish()
         self.assertEqual([p for p,s in h.xyz_moves((140,217,5))],[[140,217,7],[110,110,7],[140,217,7],[140,217,5]])
         self.assertFalse(h.pause.is_paused);self.assertEqual(h.sd.resumes,1)
@@ -156,6 +159,7 @@ class TimelapseTests(unittest.TestCase):
         h=TimelapseHarness();h.run('_SET_TIMELAPSE_SETUP ENABLE=False');h.run();self.assertEqual(h.frames,0)
         h.run('_SET_TIMELAPSE_SETUP ENABLE=True PARK_ENABLE=False');h.run()
         self.assertEqual(h.frames,1);self.assertEqual(h.motion,[]);self.assertFalse(h.pause.is_paused)
+        self.assertEqual(h.commands,['FRAME']);self.assertEqual(h.timers,[])
 
     def test_hyperlapse_mode_filter(self):
         h=TimelapseHarness();h.objects['gcode_macro HYPERLAPSE'].data['run']=True;h.run();self.assertEqual(h.frames,0)
