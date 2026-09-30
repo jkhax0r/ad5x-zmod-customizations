@@ -28,6 +28,10 @@
     {
       "path": "patches/timelapse-ffmpeg-helper-path.patch",
       "sha256": "cf864c0a9e5dd3cb612e5202652d27c75eb15f719426088d740e70e89c896807"
+    },
+    {
+      "path": "examples/timelapse-render-settings.json",
+      "sha256": "7ff757be84ad795c7d1a3d0bdc90419d68424f1d0a05c84c7a27fe11a76af95a"
     }
   ]
 }

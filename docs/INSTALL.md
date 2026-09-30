@@ -149,6 +149,50 @@ For recovery, preserve the original directory and archive, then make a separate
 working copy with consecutive frame numbers in chronological order while the
 printer is idle. This path patch does not change that renderer behavior.
 
+## Faster timelapse encoding
+
+The benchmarked encoder settings are saved in
+[`examples/timelapse-render-settings.json`](../examples/timelapse-render-settings.json):
+
+```json
+{
+  "constant_rate_factor": 21,
+  "extraoutputparams": "-preset ultrafast"
+}
+```
+
+Back up the response from `GET /machine/timelapse/settings` before posting these
+two fields to `POST /machine/timelapse/settings` on Moonraker. Review any existing
+extra output parameters before replacing that string. Read the settings back,
+and verify the two values in `GET /server/database/item?namespace=timelapse&key=config`.
+The installed plugin persists them in Moonraker's database; they are not
+`user.cfg` or Orca G-code settings. They apply to newly started renders without
+a printer restart. An already-running encode keeps its original command.
+
+The comparison used the same 60 archived 1280 x 720 photos, sampled in three
+consecutive 20-frame sections from early, middle, and late in a print. Tests ran
+sequentially on the printer's installed FFmpeg 4.0.2/libx264, with two encoder
+threads at CPU priority 19. Frame rate remained 30 fps and GOP remained 5.
+
+| Encoder | Seconds for 60 frames | Speed vs baseline | File size vs baseline | Full-frame SSIM |
+| --- | ---: | ---: | ---: | ---: |
+| medium, CRF 23 | 158.3 | 1.00x | 1.00x | 0.97590 |
+| veryfast, CRF 23 | 71.3 | 2.22x | 0.99x | 0.97381 |
+| superfast, CRF 23 | 37.8 | 4.19x | 1.13x | 0.97392 |
+| ultrafast, CRF 21 | 21.7 | 7.30x | 2.57x | 0.97834 |
+
+SSIM was measured against the original photos normalized to limited-range
+yuv420p. The printed-part crop also improved from 0.97193 to 0.97620; enlarged
+details looked comparable. This does not guarantee identical perceived quality
+on every future scene. A roughly 9-10 minute full render, scaled from a previous
+68-minute run, is an estimate, not a full-job timing verification.
+
+These settings change encoding only. Parking, frame capture, video resolution,
+frame rate, and the plugin's existing GOP are unaffected. Restore the backed-up
+values through the same settings endpoint to roll back; the inspected defaults
+were CRF 23 and an empty extra-parameters string. Retain the private Moonraker
+database backup and this example when updating or reinstalling the plugin.
+
 ## Probe module
 
 `probe/probe.py` replaces `/usr/prog/klipper/klippy/extras/probe.py` only on the
