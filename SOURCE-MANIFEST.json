@@ -20,6 +20,10 @@
     {
       "path": "extras/ad5x_purge.py",
       "sha256": "655cefc62581b541bdf1dd0c9b5b97c3e5764fda3495e55c861c684dd7810b5c"
+    },
+    {
+      "path": "macros/safe_timelapse.cfg",
+      "sha256": "01c8fce9243d0f09ea5e7e91cda9d4d8e073e4b0a2af6a2e6728b0b4564a878d"
     }
   ]
 }

@@ -1,7 +1,8 @@
 # AD5X / Z-Mod customizations
 
 Probe improvements, optional thermal soak, nine-point mesh checking, and a
-four-edge startup purge for the FlashForge AD5X. Preserved from **Z-Mod 1.7.2-5
+four-edge startup purge and staged timelapse parking for the FlashForge AD5X.
+Preserved from **Z-Mod 1.7.2-5
 with native Klipper 12**, using screenless/Guppy mode.
 
 This is a collection of version-specific modifications, not a complete firmware
@@ -58,6 +59,7 @@ loading a job, use `PLAN_EDGE_PURGE DRY_RUN=1 FILE="example.gcode"`.
 | --- | --- |
 | [Probe source](probe/probe.py) and [patch](patches/probe-customizations.patch) | Discard the fast first contact, then use slow samples. Add a configurable extra first retract. Retain selectable MCU-based adaptive release. |
 | [Optional soak](macros/optional_print_soak.cfg) | Clean once, settle the bed and nozzle for an optional interval, then perform a fresh mesh. Includes the stale-pause startup fix. |
+| [Timelapse parking](macros/safe_timelapse.cfg) | Lift at least 5 mm before XY travel; return at clearance before lowering. Configure the physical bed center as Custom X110 Y110 DZ5 in Fluidd. |
 | [Nine-point mesh check](macros/stock_mesh_average.cfg) | Replace the stock mesh-wide MESH_TEST=3 search with nine actual nodes and average each measurement's error against its corresponding mesh height. |
 | [Orca examples](examples/) | Separate normal and 20-minute-soak start G-code, plus example probe/IFS/force settings. |
 
@@ -99,10 +101,13 @@ clearance, clipped boundaries, brim bounds, bead allowance, full stroke/wipe fit
 error paths, state restoration, and 120 seeded random footprints. The suites run
 in separate processes because the legacy harness changes global logging.
 
-This public release has **91 passing offline tests**. The fallback was also
+This public release has **108 passing offline tests**. The fallback was also
 deployed and checked without motion on the development printer against the file
 that exposed the aggregate-box failure. Physical extrusion qualification remains
-pending. [Validation details](docs/VALIDATION.md).
+pending. The timelapse override is deployed and checked without motion; its
+17 native-state replay cases include first-purge clearance, raised return,
+cancellation and preservation of extrusion modes/offsets. Physical parking
+qualification remains pending. [Validation details](docs/VALIDATION.md).
 
 ## License and attribution
 

@@ -23,6 +23,9 @@ After an update, while the printer is idle:
    Check that native Klipper's `extras/ad5x_purge.py` still links to the reviewed
    copy in `mod_data`. A firmware replacement can remove this link even if user
    files survive; follow INSTALL.md to restore it on a compatible installation.
+   Also compare the timelapse plugin's setup, frame callback and pause/resume
+   interfaces before retaining `safe_timelapse.cfg`; back up its Moonraker
+   database settings separately. Confirm Custom X110 Y110 DZ5 on this bed.
 4. Run `python run_tests.py`. The retained tests use the recorded interpreter
    fixtures; extend/update fixtures and tests for changed upstream behavior.
 5. Restart appropriately, check loaded settings/macros, and verify a supervised

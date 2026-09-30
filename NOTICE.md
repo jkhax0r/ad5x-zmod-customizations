@@ -20,6 +20,12 @@ September 2026. It is not an official FlashForge, Z-Mod, or Klipper release.
   <https://github.com/kyleisah/Klipper-Adaptive-Meshing-Purging>.
   The replacement four-edge planner is documented in this repository; it retains
   the existing Z-Mod purge workflow and helper calls.
+- Timelapse integration and the retained setup-macro fixture derive from
+  mainsail-crew/moonraker-timelapse, distributed under GNU GPL version 3.
+  The component identifies copyright 2021 Christoph Frei. This repository's
+  `safe_timelapse.cfg` replaces frame parking/return while retaining that plugin's
+  camera callback, settings and frame-release interface.
+  Upstream: <https://github.com/mainsail-crew/moonraker-timelapse>.
 
 `baselines/` and `tests/vendor/` contain retained upstream/deployed reference
 material for comparison and offline tests. They are not install targets. Modified

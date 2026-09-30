@@ -13,8 +13,9 @@ sensors and clocks are test doubles.
 | Optional soak and stale pause handling | 17 |
 | Four-edge purge placement | 18 |
 | Actual low-layer paths and macro fallback | 19 |
+| Staged timelapse parking and native pause/resume state | 17 |
 
-All 91 cases pass locally with Python 3.14 and Jinja2 3.1.2. The purge suite also
+All 108 cases pass locally with Python 3.14 and Jinja2 3.1.2. The purge suite also
 checks low-Z paths against 120 seeded random footprints and explicit side/corner
 examples. Public fixtures exercise the same regression assertions as the private
 checkpoint without uploading measured meshes or job snapshots.
@@ -41,3 +42,18 @@ and geometry are deliberately omitted from this public repository.
 The revised macro and helper are deployed; physical extrusion qualification is
 pending. Passing tests and a nonmoving check do not establish actual extrusion,
 molten bead shape or mechanics.
+
+Timelapse tests execute native G-code state, PAUSE/RESUME and the installed
+plugin's setup macro. Hardware and camera completion remain test doubles.
+They check lift-before-XY, return-XY-before-lowering, first-layer/purge heights,
+tall prints, minimum and larger configured lifts, source/target outside the bed,
+insufficient Z room including mesh reserve, cold/unhomed dry runs, existing
+pauses, cancellation, lost homing, absolute/relative XYZ and E modes, offsets,
+G92 E, feed/flow factors, firmware retraction dispatch, no cold priming,
+Orca parking enable, disabled/in-place frames and hyperlapse mode filtering.
+
+The timelapse include and persistent center settings were deployed to the idle
+development printer, restarted and read back. Other loaded configuration was
+compared with the pre-install snapshot. A native nonmoving route check passed.
+No homing, extrusion or physical frame-parking test was performed for this change;
+physical clearance, noise and camera composition remain to be qualified.
