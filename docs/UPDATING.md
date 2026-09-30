@@ -25,7 +25,8 @@ After an update, while the printer is idle:
    files survive; follow INSTALL.md to restore it on a compatible installation.
    Also compare the timelapse plugin's setup, frame callback and pause/resume
    interfaces before retaining `safe_timelapse.cfg`; back up its Moonraker
-   database settings separately. Confirm Custom X110 Y110 DZ5 on this bed.
+   database settings separately. With the front-right camera, confirm Custom
+   X10 Y210 DZ2 and the two 2 mm lift/travel floors on this bed.
 4. Run `python run_tests.py`. The retained tests use the recorded interpreter
    fixtures; extend/update fixtures and tests for changed upstream behavior.
 5. Restart appropriately, check loaded settings/macros, and verify a supervised

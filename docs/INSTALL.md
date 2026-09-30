@@ -67,7 +67,7 @@ selected interval, and resumes automatically into a fresh mesh. Manual Resume is
 blocked during the wait; Cancel disarms it. Twenty minutes is a configurable
 starting point from one printer's measurements, not a universal equilibrium time.
 
-## Timelapse parking at the bed center
+## Timelapse parking away from the camera
 
 This override requires the installed Moonraker timelapse plugin, its setup/camera
 macros, native PAUSE/RESUME base commands and Z-Mod's bed limits. Save the current
@@ -75,10 +75,12 @@ macros, native PAUSE/RESUME base commands and Z-Mod's bed limits. Save the curre
 
 1. Upload `macros/safe_timelapse.cfg` to `mod_data/safe_timelapse.cfg` and append
    `[include safe_timelapse.cfg]` after the vendor timelapse configuration.
-2. In Fluidd's timelapse settings select **Custom**, X **110**, Y **110**, and
-   delta Z **5**. These settings persist in Moonraker's database. The stock
-   Center preset uses extended machine travel bounds; it is not exactly the
-   center of this printer's 220 x 220 mm usable bed.
+2. For a camera at the front-right, select **Custom**, X **10**, Y **210**, and
+   delta Z **2** in Fluidd's timelapse settings. This parks at the opposite
+   back-left corner, 10 mm inside the 220 x 220 mm bed boundaries. These
+   settings persist in Moonraker's database. Avoid the stock corner presets:
+   they use extended machine limits that enter maintenance areas. If preferred,
+   the actual bed center can still be selected as Custom X110 Y110.
 3. Restart Klipper while idle. Confirm `GET_TIMELAPSE_SETUP` reports the custom
    coordinates and `_SAFE_TIMELAPSE_PARK DRY_RUN=1` reports the route without
    movement. The dry run is valid while cold and unhomed.
@@ -90,10 +92,11 @@ G-code state. Native RESUME reaches a position already restored, avoiding its
 usual simultaneous XYZ return. Configured XY offsets are preserved, with the
 park destination interpreted in machine coordinates.
 
-At the default settings, the first-purge exit at Z5 parks at Z10, and a frame at
-layer Z0.25 travels at Z5.25. The configured delta Z can be increased in Fluidd;
-`variable_min_lift` in this include supplies a 5 mm safety floor, and
-`variable_min_travel_z` supplies an absolute Z5 floor. Separate Z moves use
+At the default settings, the first-purge exit at Z5 parks at Z7, and a frame at
+layer Z0.25 travels at Z2.25, above the normal 0.8 mm purge bead. The configured
+delta Z can be increased in Fluidd; `variable_min_lift` in this include supplies
+a 2 mm safety floor, and `variable_min_travel_z` supplies an absolute Z2 floor.
+Separate Z moves use
 `variable_z_speed: 10.0` mm/s, while XY retains the Fluidd travel speed. The
 macro skips frames rather than reducing clearance near the Z limit. It reserves
 the absolute loaded-mesh envelope plus 1 mm below that limit. Unhomed axes,

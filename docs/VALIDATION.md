@@ -13,9 +13,9 @@ sensors and clocks are test doubles.
 | Optional soak and stale pause handling | 17 |
 | Four-edge purge placement | 18 |
 | Actual low-layer paths and macro fallback | 19 |
-| Staged timelapse parking and native pause/resume state | 17 |
+| Staged timelapse parking and native pause/resume state | 18 |
 
-All 108 cases pass locally with Python 3.14 and Jinja2 3.1.2. The purge suite also
+All 109 cases pass locally with Python 3.14 and Jinja2 3.1.2. The purge suite also
 checks low-Z paths against 120 seeded random footprints and explicit side/corner
 examples. Public fixtures exercise the same regression assertions as the private
 checkpoint without uploading measured meshes or job snapshots.
@@ -57,3 +57,10 @@ development printer, restarted and read back. Other loaded configuration was
 compared with the pre-install snapshot. A native nonmoving route check passed.
 No homing, extrusion or physical frame-parking test was performed for this change;
 physical clearance, noise and camera composition remain to be qualified.
+
+The subsequent corner setting uses Custom X10 Y210 DZ2, opposite the confirmed
+front-right camera. The two lift/travel floor variables and saved include were
+also changed to 2 mm, avoiding a hidden 5 mm floor. An additional native replay
+case checks that corner at first-purge, first-layer and tall-print heights. These
+settings were applied and read back without restarting the ongoing print;
+physical clearance and camera composition at the new corner remain unqualified.

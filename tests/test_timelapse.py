@@ -57,7 +57,7 @@ class TimelapseHarness(Harness):
                    '_TIMELAPSE_NEW_FRAME':self.frame,'G10':lambda c:self.fw.append('G10'),'G11':lambda c:self.fw.append('G11')}
         for name,callback in callbacks.items(): self.gcode.register_command(name,callback)
         self.send_event('klippy:connect');self.send_event('klippy:ready')
-        self.gcode.run_script('_SET_TIMELAPSE_SETUP ENABLE=True PARK_ENABLE=True CUSTOM_POS_X=110 CUSTOM_POS_Y=110 CUSTOM_POS_DZ=5 PARK_POS=custom')
+        self.gcode.run_script('_SET_TIMELAPSE_SETUP ENABLE=True PARK_ENABLE=True CUSTOM_POS_X=110 CUSTOM_POS_Y=110 CUSTOM_POS_DZ=2 PARK_POS=custom')
 
     def frame(self,c): self.frames+=1
     def run(self,command='TIMELAPSE_TAKE_FRAME'): self.gcode.run_script(command)
@@ -73,23 +73,30 @@ class TimelapseHarness(Harness):
 
 
 class TimelapseTests(unittest.TestCase):
+    def test_inset_back_left_corner_with_two_mm_lift(self):
+        for z in [5,.25,100]:
+            h=TimelapseHarness((140,217,z))
+            h.run('_SET_TIMELAPSE_SETUP CUSTOM_POS_X=10 CUSTOM_POS_Y=210 CUSTOM_POS_DZ=2 PARK_POS=custom')
+            h.run();h.finish()
+            self.assertEqual([p for p,s in h.xyz_moves((140,217,z))],[[140,217,z+2],[10,210,z+2],[140,217,z+2],[140,217,z]])
+
     def test_first_purge_lift_before_xy_and_return_before_lowering(self):
         h=TimelapseHarness();h.run();self.assertTrue(h.pause.is_paused)
         self.assertEqual(h.frames,1);h.finish()
-        self.assertEqual([p for p,s in h.xyz_moves((140,217,5))],[[140,217,10],[110,110,10],[140,217,10],[140,217,5]])
+        self.assertEqual([p for p,s in h.xyz_moves((140,217,5))],[[140,217,7],[110,110,7],[140,217,7],[140,217,5]])
         self.assertFalse(h.pause.is_paused);self.assertEqual(h.sd.resumes,1)
         self.assertEqual(h.objects['toolhead'].pos,[140,217,5,25])
 
     def test_first_layer_clears_point_eight_mm_bead(self):
         h=TimelapseHarness((20,20,.25));h.run();h.finish()
-        self.assertEqual([p for p,s in h.xyz_moves((20,20,.25))],[[20,20,5.25],[110,110,5.25],[20,20,5.25],[20,20,.25]])
+        self.assertEqual([p for p,s in h.xyz_moves((20,20,.25))],[[20,20,2.25],[110,110,2.25],[20,20,2.25],[20,20,.25]])
 
     def test_tall_print_retains_full_relative_clearance(self):
         h=TimelapseHarness((30,40,100));h.run();h.finish()
-        self.assertEqual(h.xyz_moves((30,40,100))[1][0],[110,110,105])
+        self.assertEqual(h.xyz_moves((30,40,100))[1][0],[110,110,102])
 
     def test_larger_fluidd_lift_and_minimum_floor(self):
-        for setting,expected in [(8,13),(0,10),(-2,10)]:
+        for setting,expected in [(8,13),(0,7),(-2,7)]:
             h=TimelapseHarness();h.run('_SET_TIMELAPSE_SETUP CUSTOM_POS_DZ=%s PARK_POS=custom'%setting)
             h.run();self.assertEqual(h.xyz_moves((140,217,5))[0][0][2],expected)
 
@@ -101,7 +108,7 @@ class TimelapseTests(unittest.TestCase):
         h=TimelapseHarness((52.5,230,5));h.run();self.assertEqual(h.motion,[])
 
     def test_top_of_travel_skips_before_pause_or_retract(self):
-        for height,mesh in [(226,[]),(220,[[6.]])]:
+        for height,mesh in [(228,[]),(223,[[6.]])]:
             h=TimelapseHarness((20,20,height));h.objects['bed_mesh'].data['mesh_matrix']=mesh;h.run()
             self.assertEqual(h.motion,[]);self.assertFalse(h.pause.is_paused);self.assertEqual(h.frames,0)
 
@@ -130,7 +137,7 @@ class TimelapseTests(unittest.TestCase):
             h=TimelapseHarness();h.run('SET_GCODE_OFFSET X=2 Y=-3 Z=-.085\nG92 E123\nM220 S80\nM221 S95\nG1 F2400\n'+mode)
             h.motion.clear();before=copy.deepcopy(h.move.get_status());h.run();h.finish()
             self.assertEqual(h.move.get_status(),before)
-            xyz=h.xyz_moves((140,217,5));self.assertEqual(xyz[1][0],[110,110,10])
+            xyz=h.xyz_moves((140,217,5));self.assertEqual(xyz[1][0],[110,110,7])
             self.assertEqual([speed for p,speed in xyz],[10,100,100,10])
 
     def test_firmware_retraction_balanced(self):
@@ -143,7 +150,7 @@ class TimelapseTests(unittest.TestCase):
 
     def test_orca_enable_does_not_override_custom_center(self):
         h=TimelapseHarness();h.run('_SET_TIMELAPSE_SETUP PARK_ENABLE=True');h.run()
-        self.assertEqual(h.xyz_moves((140,217,5))[1][0],[110,110,10])
+        self.assertEqual(h.xyz_moves((140,217,5))[1][0],[110,110,7])
 
     def test_disable_and_nonparking_frame(self):
         h=TimelapseHarness();h.run('_SET_TIMELAPSE_SETUP ENABLE=False');h.run();self.assertEqual(h.frames,0)
