@@ -123,6 +123,32 @@ protects the old low XY corridor even though this override now raises first.
 Rollback: remove only `[include safe_timelapse.cfg]`, restore the saved Fluidd
 settings and restart while idle. Recheck compatibility after plugin updates.
 
+## Timelapse renderer helper path
+
+The inspected timelapse plugin's `ffmpeg` launcher called
+`/usr/data/zmod/zmod/.shell/zremote.sh`, which did not exist inside Moonraker's
+chroot. Its helper was installed at `/opt/config/mod/.shell/zremote.sh`.
+[`timelapse-ffmpeg-helper-path.patch`](../patches/timelapse-ffmpeg-helper-path.patch)
+changes only that path in `mod_data/plugins/timelapse/ffmpeg`.
+
+Before applying it, confirm the error in Moonraker's log, verify the replacement
+helper exists, and back up the launcher. Preserve its executable permissions.
+Run the launcher's `-version` check from Moonraker's environment; the native
+encoder must be reachable through the helper. No printer or Moonraker restart
+is needed because the launcher is read at each render. A plugin update can
+replace this file; inspect the installed version before reapplying the patch.
+
+Completed MP4s appear in Fluidd's Timelapse file list. On this installation they
+are stored at `/usr/data/gcodes/timelapse/`, also visible inside Moonraker as
+`/root/printer_data/gcodes/timelapse/`.
+
+Keep frame archives until the output is verified. The inspected renderer uses
+a numbered image sequence: gaps can truncate a video, and its last-frame
+duplication uses the file count rather than the largest existing frame number.
+For recovery, preserve the original directory and archive, then make a separate
+working copy with consecutive frame numbers in chronological order while the
+printer is idle. This path patch does not change that renderer behavior.
+
 ## Probe module
 
 `probe/probe.py` replaces `/usr/prog/klipper/klippy/extras/probe.py` only on the

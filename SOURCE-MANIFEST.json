@@ -24,6 +24,10 @@
     {
       "path": "macros/safe_timelapse.cfg",
       "sha256": "a8fa76d22da621f8d7bf3b94530781f662ee4076549de36dd6fae4a4ed422d86"
+    },
+    {
+      "path": "patches/timelapse-ffmpeg-helper-path.patch",
+      "sha256": "cf864c0a9e5dd3cb612e5202652d27c75eb15f719426088d740e70e89c896807"
     }
   ]
 }

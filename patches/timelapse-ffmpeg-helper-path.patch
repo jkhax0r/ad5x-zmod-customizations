@@ -1,0 +1,11 @@
+--- a/ffmpeg
++++ b/ffmpeg
+@@ -1,7 +1,7 @@
+ #!/bin/sh
+ 
+ if [ -f /ZMOD ]; then
+-    /usr/data/zmod/zmod/.shell/zremote.sh /opt/config/mod_data/plugins/timelapse/ffmpeg "$@"
++    /opt/config/mod/.shell/zremote.sh /opt/config/mod_data/plugins/timelapse/ffmpeg "$@"
+ else
+     ARCH=$(uname -m)
+     if [ "$ARCH" == "armv7l" ]; then

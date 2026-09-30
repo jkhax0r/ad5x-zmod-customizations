@@ -60,6 +60,7 @@ loading a job, use `PLAN_EDGE_PURGE DRY_RUN=1 FILE="example.gcode"`.
 | [Probe source](probe/probe.py) and [patch](patches/probe-customizations.patch) | Discard the fast first contact, then use slow samples. Add a configurable extra first retract. Retain selectable MCU-based adaptive release. |
 | [Optional soak](macros/optional_print_soak.cfg) | Clean once, settle the bed and nozzle for an optional interval, then perform a fresh mesh. Includes the stale-pause startup fix. |
 | [Timelapse parking](macros/safe_timelapse.cfg) | Lift at least 2 mm before XY travel; return at clearance before lowering. For a front-right camera, use Custom X10 Y210 DZ2. Parking off requests frames asynchronously without a deliberate motion stop. |
+| [Timelapse renderer path](patches/timelapse-ffmpeg-helper-path.patch) | Correct the encoder launcher's helper path on the inspected Z-Mod installation when rendering fails with `zremote.sh: not found`. |
 | [Nine-point mesh check](macros/stock_mesh_average.cfg) | Replace the stock mesh-wide MESH_TEST=3 search with nine actual nodes and average each measurement's error against its corresponding mesh height. |
 | [Orca examples](examples/) | Separate normal and 20-minute-soak start G-code, plus example probe/IFS/force settings. |
 
