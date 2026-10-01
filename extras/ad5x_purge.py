@@ -183,15 +183,37 @@ def clip_polygon(poly, axis, lo, hi):
     return poly
 
 
-def blocked_intervals(geometry, axis, fixed, radius, cooperate=lambda: None):
-    """Conservative square buffers: accepted clearance is at least radius."""
+def merge_interval(intervals, lo, hi):
+    """Maintain the sorted union; overlapping paths need only one interval."""
+    start = 0
+    while start < len(intervals) and intervals[start][1] < lo:
+        start += 1
+    end = start
+    while end < len(intervals) and intervals[end][0] <= hi:
+        lo = min(lo, intervals[end][0])
+        hi = max(hi, intervals[end][1])
+        end += 1
+    intervals[start:end] = [(lo, hi)]
+
+
+def blocked_intervals(geometry, axis, fixed, radius, cooperate=lambda: None,
+                      window=None):
+    """Conservative square buffers, with redundant projections skipped.
+
+    A segment's full projected buffer bounds its clipped projection. If that
+    bound is already covered, it cannot remove any further free space. When a
+    requested window has no long-enough gap, further obstacles cannot open one.
+    Neither optimization changes an accepted placement or its clearance.
+    """
     other = 1 - axis
     intervals = []
     for poly in geometry['polygons']:
         clipped = clip_polygon(poly, axis, fixed-radius, fixed+radius)
         if clipped:
-            intervals.append((min(p[other] for p in clipped)-radius,
-                              max(p[other] for p in clipped)+radius))
+            merge_interval(intervals, min(p[other] for p in clipped)-radius,
+                           max(p[other] for p in clipped)+radius)
+    if window is not None and not free_intervals(intervals, *window):
+        return intervals
     for i, (a, b, width) in enumerate(geometry['segments']):
         if i % 2048 == 0:
             cooperate()
@@ -200,6 +222,19 @@ def blocked_intervals(geometry, axis, fixed, radius, cooperate=lambda: None):
         # division/clipping, which is expensive on the printer's small CPU.
         if ((a[axis] < fixed-r and b[axis] < fixed-r) or
                 (a[axis] > fixed+r and b[axis] > fixed+r)):
+            continue
+        lo = min(a[other], b[other])-r
+        hi = max(a[other], b[other])+r
+        if window is not None and (hi < window[0] or lo > window[1]):
+            continue
+        covered = False
+        for lower, upper in intervals:
+            if lower > lo:
+                break
+            if upper >= hi:
+                covered = True
+                break
+        if covered:
             continue
         d = b[axis] - a[axis]
         if abs(d) < 1.e-12:
@@ -212,8 +247,10 @@ def blocked_intervals(geometry, axis, fixed, radius, cooperate=lambda: None):
             if t0 > t1:
                 continue
         u, v = a[other]+t0*(b[other]-a[other]), a[other]+t1*(b[other]-a[other])
-        intervals.append((min(u,v)-r, max(u,v)+r))
-    return sorted(intervals)
+        merge_interval(intervals, min(u,v)-r, max(u,v)+r)
+        if window is not None and not free_intervals(intervals, *window):
+            return intervals
+    return intervals
 
 
 def free_intervals(blocked, lo, hi, length):
@@ -249,7 +286,8 @@ def choose_edge(geometry, bed, amount, height, margin, diameter=1.75,
             continue
         def gaps(radius):
             return free_intervals(blocked_intervals(geometry, axis, fixed,
-                                                   radius, cooperate), lo, hi, span)
+                                                   radius, cooperate,
+                                                   window=(lo, hi, span)), lo, hi, span)
         free = gaps(required + .02)  # avoid rounded coordinates touching a boundary
         if not free:
             continue

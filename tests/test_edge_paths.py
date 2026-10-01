@@ -44,6 +44,58 @@ def distance_point_segment(pt,a,b):
 
 
 class GeometryTests(unittest.TestCase):
+    def test_interval_union_matches_independent_clipping_on_mixed_obstacles(self):
+        # Clip each segment as a degenerate polygon for an independent oracle.
+        # Include zero-length/parallel paths, overlapping buffers and margins.
+        rng = random.Random(40137)
+        for axis in (0, 1):
+            for fixed in (3., 110., 217.):
+                for radius in (0., 3., 20.02, 78., 120.):
+                    geometry = {
+                        'polygons': [[(40,40),(180,40),(180,80),(80,80),(80,180),(40,180)]],
+                        'segments': [((50.,50.),(50.,50.),.5),
+                                     ((-20.,3.),(240.,3.),.5),
+                                     ((217.,-20.),(217.,240.),2.5)] +
+                                    [((rng.uniform(-30,250),rng.uniform(-30,250)),
+                                      (rng.uniform(-30,250),rng.uniform(-30,250)),
+                                      rng.uniform(.5,2.5)) for _ in range(30)]}
+                    other = 1-axis
+                    expected = []
+                    for poly, padding in ([(poly,radius) for poly in geometry['polygons']] +
+                                          [([a,b],radius+width) for a,b,width in geometry['segments']]):
+                        clipped = p.clip_polygon(poly,axis,fixed-padding,fixed+padding)
+                        if clipped:
+                            expected.append((min(v[other] for v in clipped)-padding,
+                                             max(v[other] for v in clipped)+padding))
+                    expected.sort()
+                    for window in ((3.,217.,40.),(-40.,260.,10.),(30.,60.,5.)):
+                        reference = p.free_intervals(expected,*window)
+                        for bounded in (False,True):
+                            actual = p.free_intervals(p.blocked_intervals(
+                                geometry,axis,fixed,radius,
+                                window=window if bounded else None),*window)
+                            with self.subTest(axis=axis,fixed=fixed,radius=radius,
+                                              window=window,bounded=bounded):
+                                self.assertEqual(len(actual),len(reference))
+                                for a,b in zip(actual,reference):
+                                    self.assertAlmostEqual(a[0],b[0],places=8)
+                                    self.assertAlmostEqual(a[1],b[1],places=8)
+
+    def test_covered_paths_do_not_hide_a_buffer_protruding_past_polygon(self):
+        geometry={'polygons':[[(0,0),(100,0),(100,100),(0,100)]],
+                  'segments':[((90,50),(110,50),2.5)]}
+        result=p.free_intervals(p.blocked_intervals(geometry,1,50,20),3,217,40)
+        self.assertEqual(result,[(132.5,217)])
+
+    def test_fully_blocked_window_stops_before_scanning_remaining_paths(self):
+        def unused_paths():
+            raise AssertionError('Extra paths cannot create a gap in a blocked window')
+            yield
+        geometry={'polygons':[[(0,0),(220,0),(220,220),(0,220)]],
+                  'segments':unused_paths()}
+        blocked=p.blocked_intervals(geometry,1,3,20,window=(3,217,40))
+        self.assertEqual(p.free_intervals(blocked,3,217,40),[])
+
     def test_large_aggregate_bounds_still_have_clear_partial_edge(self):
         g=geometry();s=plan(g)
         self.assertIn(s['side'],('left','back'))

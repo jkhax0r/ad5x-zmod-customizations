@@ -40,6 +40,12 @@ clear partial-edge segments. It requires complete, supported Orca by-layer
 G-code; unknown motion commands, arcs, incomplete geometry, and truly blocked
 edges still stop before purge motion. It does not reduce the configured margin.
 
+The fallback merges overlapping blocked intervals as it scans, skips paths whose
+full buffer is already covered, and stops checking a candidate once no purge
+stroke can fit. This avoids repeatedly clipping redundant paths in complex low
+layers while retaining the four-edge search, clearance calculation and 40-second
+planning limit.
+
 **Install both files:** place the macro and helper in `mod_data`, link the helper
 into native Klipper's extras directory as described in
 [installation](docs/INSTALL.md), then append this to `user.cfg` and restart while idle:
@@ -103,7 +109,7 @@ clearance, clipped boundaries, brim bounds, bead allowance, full stroke/wipe fit
 error paths, state restoration, and 120 seeded random footprints. The suites run
 in separate processes because the legacy harness changes global logging.
 
-This public release has **109 passing offline tests**. The fallback was also
+This public release has **112 passing offline tests**. The fallback was also
 deployed and checked without motion on the development printer against the file
 that exposed the aggregate-box failure. Physical extrusion qualification remains
 pending. The timelapse override is deployed and checked without motion; its

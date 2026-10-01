@@ -12,10 +12,10 @@ sensors and clocks are test doubles.
 | Stock nine-point mesh averaging | 16 |
 | Optional soak and stale pause handling | 17 |
 | Four-edge purge placement | 18 |
-| Actual low-layer paths and macro fallback | 19 |
+| Actual low-layer paths and macro fallback | 22 |
 | Staged timelapse parking and native pause/resume state | 18 |
 
-All 109 cases pass locally with Python 3.14 and Jinja2 3.1.2. The purge suite also
+All 112 cases pass locally with Python 3.14 and Jinja2 3.1.2. The purge suite also
 checks low-Z paths against 120 seeded random footprints and explicit side/corner
 examples. Public fixtures exercise the same regression assertions as the private
 checkpoint without uploading measured meshes or job snapshots.
@@ -30,6 +30,10 @@ full beds, brim larger than model polygons, low travels and timelapse parking,
 later low layers, coordinate/extrusion modes, invalid/truncated/unsupported input,
 filename confinement, dry runs and the complete fallback through native dispatch.
 It independently measures accepted clearance against 60 seeded random path sets.
+The interval-union optimization is compared with independent polygon clipping
+across both axes, varied margins and windows, overlapping and protruding buffers,
+parallel and zero-length paths. A blocked-window case verifies that redundant
+paths are not scanned after no stroke can fit.
 
 On the development printer, native Python 3.8 and a nonmoving Klipper command
 checked the actual file behind the aggregate-box failure. Its complete low-layer
@@ -38,6 +42,17 @@ retaining the 30 mm purge, 10 mm wipe and 20 mm minimum margin. The first
 printer-side scan took 23.209 seconds; a content-verified cached check took
 0.132 seconds. Private job paths
 and geometry are deliberately omitted from this public repository.
+
+A later complex file with 37,145 paths across 12 low layers reached the
+40-second planning limit. After the interval-union optimization, native printer
+Python parsed and planned the same file in 22.937 seconds. The chosen front-edge
+position and 78.022 mm clearance exactly matched the original planner's offline
+result. Following a full Klipper process restart, the installed command completed
+a fresh nonmoving check in 26.285 seconds and a content-verified cached repeat in
+0.053 seconds. Heater targets stayed off and the toolhead position did not change.
+The original module was backed up; the purge macro, user configuration, minimum
+clearance and 40-second planning limit were retained. Timing depends on file
+complexity and printer load; this check does not establish physical extrusion.
 
 The revised macro and helper are deployed; physical extrusion qualification is
 pending. Passing tests and a nonmoving check do not establish actual extrusion,
