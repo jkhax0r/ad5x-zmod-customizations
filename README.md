@@ -36,15 +36,19 @@ allowance is a geometric estimate, not a measurement of real molten plastic.
 The original four-edge version could reject a large L-shaped layout because its
 aggregate brim rectangle covered nearly the entire bed. The new
 [`extras/ad5x_purge.py`](extras/ad5x_purge.py) fallback checks the actual paths for
-clear partial-edge segments. It requires complete, supported Orca by-layer
-G-code; unknown motion commands, arcs, incomplete geometry, and truly blocked
+clear partial-edge segments. It supports Orca by-layer and sequential by-object
+G-code. Sequential jobs scan every object's low paths and all object transitions.
+Unknown motion commands, arcs, incomplete geometry, and truly blocked
 edges still stop before purge motion. It does not reduce the configured margin.
 
 The fallback merges overlapping blocked intervals as it scans, skips paths whose
 full buffer is already covered, and stops checking a candidate once no purge
 stroke can fit. This avoids repeatedly clipping redundant paths in complex low
-layers while retaining the four-edge search, clearance calculation and 40-second
-planning limit.
+layers while retaining the four-edge search and clearance calculation. By-layer
+jobs keep the 40-second limit. Sequential jobs require a whole-file scan and have
+a 240-second limit; their cached decisions recheck the entire file's content.
+Supported AD5X filament changes restore position above the purge area. Changed
+restore macros, trash mode 2, and low tool changes require separate review.
 
 **Install both files:** place the macro and helper in `mod_data`, link the helper
 into native Klipper's extras directory as described in
@@ -109,7 +113,7 @@ clearance, clipped boundaries, brim bounds, bead allowance, full stroke/wipe fit
 error paths, state restoration, and 120 seeded random footprints. The suites run
 in separate processes because the legacy harness changes global logging.
 
-This public release has **112 passing offline tests**. The fallback was also
+This public release has **125 passing offline tests**. The fallback was also
 deployed and checked without motion on the development printer against the file
 that exposed the aggregate-box failure. Physical extrusion qualification remains
 pending. The timelapse override is deployed and checked without motion; its

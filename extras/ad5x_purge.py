@@ -11,6 +11,7 @@ import os
 import re
 
 MAX_BYTES = 16 * 1024 * 1024
+MAX_SEQUENTIAL_BYTES = 256 * 1024 * 1024
 MAX_SEGMENTS = 300000
 NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)'
 WORDS = re.compile(r'([XYZEF])\s*(' + NUMBER + r')', re.I)
@@ -20,6 +21,114 @@ SAFE_COMMANDS = {
     'M140', 'M190', 'M106', 'M107', 'M400', 'M204', 'M205', 'M220', 'M221',
     'G4', 'G10', 'G11', 'G21',
 }
+
+# Only absolute XY / relative E moves at a known safe Z may take this shortcut.
+# Noncapturing runs avoid costly capture bookkeeping on the native CPU.
+# Final modal coordinates are recovered separately from the validated span.
+_FAST_NUMBER = rb'[-+]?(?:\d{1,5}(?:\.\d{0,12})?|\.\d{1,12})'
+_HIGH_RUN_XY = re.compile(
+    rb'(?:G0?[01](?:[ \t]+(?:X(?:' + _FAST_NUMBER +
+    rb')|Y(?:' + _FAST_NUMBER + rb')|E(?:' + _FAST_NUMBER + rb')|F' + _FAST_NUMBER +
+    rb'))*[ \t]*(?:;[^\r\n]*)?\r?\n|'
+    rb'(?:SET_VELOCITY_LIMIT|M73|M106)[ \t][^\r\n]*\r?\n|'
+    rb';(?!LAYER_CHANGE|Z:|WIDTH:)[^\r\n]*\r?\n|[ \t]*\r?\n)+'
+)
+# Z >= 2 is a safe bulk range for the usual 0.8 mm bead + 0.5 mm scan height.
+# For taller purge beads the reader uses the XY-only shortcut above.
+_HIGH_RUN = re.compile(
+    rb'(?:G0?[01][ \t]+[XYEF0-9.+\t -]*(?:Z(?:[2-9]\d*|1\d+)(?:\.\d*)?[XYEF0-9.+\t -]*)?(?:;[^\r\n]*)?\r?\n|'
+    rb';WIDTH:(?:[1-4](?:\.\d{0,12})?|5(?:\.0{0,12})?|0?\.0{0,11}[1-9]\d{0,11})[ \t]*\r?\n|'
+    rb'(?:SET_VELOCITY_LIMIT|M73|M106)[ \t][^\r\n]*\r?\n|'
+    rb';(?!LAYER_CHANGE|Z:|WIDTH:)[^\r\n]*\r?\n|[ \t]*\r?\n)+'
+)
+
+
+WIDTH_LINES = re.compile(rb'^;WIDTH:([^\r\n]+)', re.M)
+MOTION_NUMBER = re.compile(NUMBER.encode())
+
+
+def last_motion_word(block, start, end, letter):
+    """Find the last actual move word, ignoring words embedded in comments."""
+    while True:
+        at = block.rfind(letter, start, end)
+        if at < 0:
+            return None
+        line = max(start, block.rfind(b'\n', start, at) + 1)
+        if (block.startswith((b'G1 ', b'G0 ', b'G01 ', b'G00 ',
+                              b'G1\t', b'G0\t', b'G01\t', b'G00\t'), line) and
+                block.find(b';', line, at) < 0):
+            match = MOTION_NUMBER.match(block, at + 1)
+            if not match:
+                raise PlanError('invalid coordinate in high move')
+            return match.group()
+        end = at
+
+
+class PathReader:
+    """Bounded chunks permit C-level skipping without hiding state changes."""
+    def __init__(self, stream, sequential, low_z, cooperate):
+        self.stream, self.sequential = stream, sequential
+        self.low_z, self.cooperate = low_z, cooperate
+        self.consumed = 0
+        self.e_invalid = False
+        self.width = 1.
+
+    def lines(self, state):
+        block, index, eof = b'', 0, False
+        while True:
+            if index == len(block) or block.find(b'\n', index) < 0:
+                rest = block[index:]
+                if len(rest) > 1024 * 1024:
+                    raise PlanError('G-code line exceeds 1 MiB limit')
+                extra = self.stream.read(65536)
+                block, index, eof = rest + extra, 0, not extra
+                if self.sequential and self.consumed + len(block) > MAX_SEQUENTIAL_BYTES:
+                    raise PlanError('sequential scan exceeds 256 MiB limit')
+                self.cooperate()
+                if not block:
+                    return
+            absolute, absolute_e, pos = state()
+            if (self.sequential and absolute and not absolute_e and
+                    pos[2] is not None and pos[2] > self.low_z):
+                pattern = _HIGH_RUN if self.low_z < 2. else _HIGH_RUN_XY
+                match = pattern.match(block, index)
+                if match:
+                    end = match.end()
+                    if last_motion_word(block, index, end, b'E') is not None:
+                        self.e_invalid = True
+                    for axis, letter in enumerate((b'X', b'Y', b'Z')):
+                        value = last_motion_word(block, index, end, letter)
+                        if value is not None:
+                            pos[axis] = finite(value)
+                    widths = WIDTH_LINES.findall(block, index, end)
+                    if widths:
+                        self.width = finite(widths[-1])
+                    self.consumed += match.end() - index
+                    index = match.end()
+                    continue
+            end = block.find(b'\n', index)
+            if end < 0 and not eof:
+                continue
+            end = len(block) if end < 0 else end + 1
+            raw = block[index:end]
+            self.consumed += len(raw)
+            index = end
+            yield raw
+
+
+def print_sequence(stream):
+    stream.seek(0, 2)
+    size = stream.tell()
+    stream.seek(max(0, size - 512 * 1024))
+    tail = stream.read().decode('utf-8', errors='replace')
+    modes = re.findall(r'^; print_sequence = ([^\r\n]+)', tail, re.M)
+    if len(modes) != 1 or modes[0].strip() not in ('by layer', 'by object'):
+        raise PlanError('edge fallback requires Orca print-sequence metadata')
+    sequential = modes[0].strip() == 'by object'
+    if sequential and size > MAX_SEQUENTIAL_BYTES:
+        raise PlanError('sequential scan exceeds 256 MiB limit')
+    stream.seek(0)
+    return sequential
 
 
 class PlanError(ValueError):
@@ -33,21 +142,16 @@ def finite(value):
     return value
 
 
-def parse_paths(stream, low_z, park=None, cooperate=lambda: None):
+def parse_paths(stream, low_z, park=None, cooperate=lambda: None,
+                toolchange=False):
     """Read complete low layers, including brim, travels, and frame parking.
 
-    Require Orca's by-layer metadata and layer markers; unsupported coordinate
+    Require Orca metadata and layer markers; unsupported coordinate
     transforms/macros/arcs fail closed. Include a conservative 0.5 mm path radius.
     Real object polygons protect interiors, but synthetic BORDER boxes do not
     substitute for the actual brim paths extracted from this same file.
     """
-    stream.seek(0, 2)
-    size = stream.tell()
-    stream.seek(max(0, size - 512 * 1024))
-    tail = stream.read().decode('utf-8', errors='replace')
-    if not re.search(r'^; print_sequence = by layer\s*$', tail, re.M):
-        raise PlanError('edge fallback requires Orca by-layer G-code')
-    stream.seek(0)
+    sequential = print_sequence(stream)
     pos = [None, None, None]
     absolute, absolute_e, epos = True, True, 0.
     seen_xy_mode = seen_e_mode = False
@@ -57,10 +161,16 @@ def parse_paths(stream, low_z, park=None, cooperate=lambda: None):
     width = 1.0
     park = dict(park or {})
     consumed = 0
-    for index, raw in enumerate(stream):
+    names, visited, low_objects = set(), set(), set()
+    current_object = active_object = None
+    need_new_object = ended = False
+    low_layers = 0
+    reader = PathReader(stream, sequential, low_z, cooperate)
+    for index, raw in enumerate(reader.lines(lambda: (absolute and not ended, absolute_e, pos))):
+        width = reader.width
         consumed += len(raw)
         if consumed > MAX_BYTES:
-            raise PlanError('low-layer scan exceeds 16 MiB limit')
+            raise PlanError('detailed path scan exceeds 16 MiB limit')
         if index % 256 == 0:
             cooperate()
         line = raw.decode('utf-8', errors='strict').strip()
@@ -71,24 +181,37 @@ def parse_paths(stream, low_z, park=None, cooperate=lambda: None):
         if line.startswith(';Z:') and layer:
             layer_z = finite(line[3:])
             if previous_layer_z is not None and layer_z <= previous_layer_z:
-                raise PlanError('layer heights are not increasing')
+                if not sequential or active_object is not None:
+                    raise PlanError('layer heights are not increasing within an object')
+                need_new_object = True
             previous_layer_z = layer_z
-            if layer > 1 and layer_z > low_z:
+            if layer_z <= low_z:
+                low_layers += 1
+            if not sequential and layer > 1 and layer_z > low_z:
                 done = True
                 break
         if line.startswith(';WIDTH:'):
             width = finite(line[7:])
             if not 0 < width <= 5:
                 raise PlanError('invalid extrusion width')
+            reader.width = width
         code = line.split(';', 1)[0].strip()
         if not code:
             continue
         command = code.split()[0].upper()
+        if ended:
+            if command != 'M73':
+                raise PlanError('unexpected command after END_PRINT: ' + command)
+            continue
         if command == 'EXCLUDE_OBJECT_DEFINE' and 'POLYGON=' in code:
             name = re.search(r'\bNAME=([^ ]+)', code)
             # The Z-Mod brim rectangle is an aggregate bound, not a solid shape.
             if name and re.fullmatch(r'BORDER\d+', name.group(1), re.I):
                 continue
+            if sequential:
+                if layer or not name or name.group(1) in names:
+                    raise PlanError('invalid sequential object definitions')
+                names.add(name.group(1))
             points = json.loads(code.split('POLYGON=', 1)[1])
             if len(points) < 3 or len(points) > 10000:
                 raise PlanError('invalid object polygon')
@@ -107,6 +230,8 @@ def parse_paths(stream, low_z, park=None, cooperate=lambda: None):
             if any(k in words for k in 'XYZ'):
                 raise PlanError('XYZ coordinate resets are unsupported')
             epos = words.get('E', epos)
+            if 'E' in words:
+                reader.e_invalid = False
             continue
         if not layer:
             # Startup is executed separately by Z-Mod. The first XY travel is
@@ -116,6 +241,38 @@ def parse_paths(stream, low_z, park=None, cooperate=lambda: None):
             continue
         if not generated or not seen_xy_mode or not seen_e_mode or layer_z is None:
             raise PlanError('missing Orca layer or coordinate-mode metadata')
+        if sequential and command in ('EXCLUDE_OBJECT_START', 'EXCLUDE_OBJECT_END'):
+            name = re.fullmatch(r'EXCLUDE_OBJECT_(?:START|END)\s+NAME=([^ ]+)', code)
+            if not name or name.group(1) not in names:
+                raise PlanError('unknown sequential object')
+            name = name.group(1)
+            if command == 'EXCLUDE_OBJECT_END':
+                if active_object != name:
+                    raise PlanError('mismatched sequential object end')
+                active_object = None
+            else:
+                if active_object is not None:
+                    raise PlanError('overlapping sequential objects')
+                if name != current_object:
+                    if name in visited or layer_z > low_z:
+                        raise PlanError('sequential object missing its initial low layers')
+                    visited.add(name)
+                    current_object = name
+                elif need_new_object:
+                    raise PlanError('layer heights decrease within one object')
+                active_object = name
+                need_new_object = False
+            continue
+        if sequential and command == 'END_PRINT':
+            if active_object is not None or need_new_object or visited != names or low_objects != names:
+                raise PlanError('incomplete sequential object geometry')
+            ended = done = True
+            continue
+        if sequential and command.startswith('T') and re.fullmatch(r'T[0-3]', code):
+            if (not toolchange or not absolute or absolute_e or pos[2] is None or
+                    pos[2] < max(5., low_z + 1.) or active_object is not None):
+                raise PlanError('tool change requires reviewed AD5X restore mode above purge height')
+            continue
         if command in ('G0', 'G1', 'G00', 'G01'):
             new = list(pos)
             for i, axis in enumerate('XYZ'):
@@ -124,6 +281,8 @@ def parse_paths(stream, low_z, park=None, cooperate=lambda: None):
                         raise PlanError('relative move before position is known')
                     new[i] = words[axis] if absolute else pos[i] + words[axis]
             e_absolute = absolute and absolute_e
+            if e_absolute and 'E' in words and reader.e_invalid:
+                raise PlanError('absolute E after fast relative-E scan requires G92 E reset')
             de = (words['E'] - epos if e_absolute else words['E']) if 'E' in words else 0.
             if 'E' in words:
                 epos = words['E'] if e_absolute else epos + words['E']
@@ -132,6 +291,8 @@ def parse_paths(stream, low_z, park=None, cooperate=lambda: None):
                 if None in pos or None in new:
                     raise PlanError('extrusion before XYZ is known')
                 extruded += 1
+                if sequential and min(pos[2], new[2]) <= low_z and active_object:
+                    low_objects.add(active_object)
             if None not in pos and None not in new:
                 if min(pos[2], new[2]) <= low_z and (xy_change or de > 0):
                     segments.append((tuple(pos[:2]), tuple(new[:2]), max(.5, width/2) if de > 0 else .5))
@@ -149,7 +310,7 @@ def parse_paths(stream, low_z, park=None, cooperate=lambda: None):
         elif command == 'TIMELAPSE_TAKE_FRAME':
             if park.get('enabled') and park.get('park') and None not in pos:
                 # Protect the whole XY path even if a park lift was requested;
-                # the installed macro lifts diagonally, not before XY travel.
+                # this also protects older macros that lift during XY travel.
                 if pos[2] <= low_z:
                     dest = (park.get('x', pos[0]), park.get('y', pos[1]))
                     if None in dest:
@@ -161,8 +322,9 @@ def parse_paths(stream, low_z, park=None, cooperate=lambda: None):
             raise PlanError('too many low-layer paths')
     if not done or not polygons or not segments or not extruded:
         raise PlanError('incomplete low-layer geometry; no unchecked purge')
-    return {'polygons': polygons, 'segments': segments, 'layers': layer - 1,
-            'bytes': stream.tell()}
+    return {'polygons': polygons, 'segments': segments, 'layers': low_layers,
+            'bytes': reader.consumed, 'objects': len(visited) if sequential else len(polygons),
+            'sequence': 'by object' if sequential else 'by layer'}
 
 
 def clip_polygon(poly, axis, lo, hi):
@@ -328,6 +490,23 @@ class AD5XPurge:
         obj = self.printer.lookup_object(name, None)
         return obj.get_status(self.reactor.monotonic()) if obj is not None else {}
 
+    def toolchange_supported(self):
+        # These inspected Z-Mod macros lift, change at the maintenance area,
+        # then restore XYZ and extrusion state. Trash mode 2 skips restoration.
+        expected = {
+            '_A_CHANGE_FILAMENT': '9e1279edbbfdcc2dce801d4c534fe7494a4684148f5c260acd359d6a6369a74a',
+            '_RESTORE_POSITION_AFTER_FILAMENT_CHANGE': '8a9f8ead7334a99bed5f881b518e92db537f4a6265273f41acf3080a40501332',
+            'END_CHANGE_FILAMENT': '6cefbe411d12e95200a7d44187b0e0309df61914e7c9f2d7c28d3db4ed4fd7ff',
+            '_MODIFY_END_CHANGE_FILAMENT_DATA': '444ba7e749c8ff89d8eab1fc47b73bacb7ff070e3b5ee00c093e1dd8a6c0219a',
+        }
+        config = self.status('configfile').get('config', {})
+        return (self.status('gcode_macro _CLIENT_VARIABLE').get('ad5x', False) and
+                not self.status('gcode_macro _SCREEN').get('screen', True) and
+                self.status('save_variables').get('variables', {}).get('use_trash_on_print', 1) != 2 and
+                self.status('gcode_macro _A_CHANGE_FILAMENT').get('purge', 0) == 0 and
+                all(hashlib.sha256(config.get('gcode_macro ' + name, {}).get('gcode', '').encode()).hexdigest() == digest
+                    for name, digest in expected.items()))
+
     def cmd_edge(self, gcmd):
         dry = gcmd.get_int('DRY_RUN', 0, minval=0, maxval=1)
         filename = gcmd.get('FILE', None)
@@ -363,10 +542,11 @@ class AD5XPurge:
         if abs(origin[0]) > 1.e-6 or abs(origin[1]) > 1.e-6:
             raise gcmd.error('Edge purge requires zero XY G-code offsets')
         last_yield = [self.reactor.monotonic()]
+        budget = 40.
         def cooperate():
             now = self.reactor.monotonic()
-            if now - start > 40.:
-                raise PlanError('planning exceeded 40 seconds')
+            if now - start > budget:
+                raise PlanError('planning exceeded %d seconds' % budget)
             if now - last_yield[0] >= .02:
                 self.reactor.pause(now + .001)
                 last_yield[0] = self.reactor.monotonic()
@@ -377,7 +557,8 @@ class AD5XPurge:
                min(float(client['max_y']),toolhead['axis_maximum'][1]))
         params = (float(k['purge_amount']), float(k['purge_height']),
                   float(k['purge_margin']), float(settings['filament_diameter']))
-        key = (path, bed, params, json.dumps(park, sort_keys=True))
+        toolchange = self.toolchange_supported()
+        key = (path, bed, params, json.dumps(park, sort_keys=True), toolchange)
         def signature(stream, length):
             # Revalidate every byte used in the cached decision, including
             # footer metadata. A reused filename or preserved mtime is not enough.
@@ -398,19 +579,25 @@ class AD5XPurge:
         try:
             with open(path, 'rb') as stream:
                 before = os.fstat(stream.fileno())
+                sequential = print_sequence(stream)
+                if sequential:
+                    budget = 240.
+                    gcmd.respond_info('Sequential purge: scanning every object and transition in the file')
                 entry = self.cache
                 if (entry is not None and entry['key'] == key and
                         entry['size'] == before.st_size and
                         signature(stream,entry['bytes']) == entry['digest']):
                     p, count, layers = entry['plan'],entry['count'],entry['layers']
+                    objects = entry['objects']
                     cached = True
                 else:
-                    geometry = parse_paths(stream, params[1]+.5, park, cooperate)
+                    geometry = parse_paths(stream, params[1]+.5, park, cooperate, toolchange)
                     p = choose_edge(geometry, bed, *params, cooperate=cooperate)
                     count, layers = len(geometry['segments']),geometry['layers']
+                    objects = geometry['objects']
                     entry = {'key':key,'size':before.st_size,'bytes':geometry['bytes'],
                              'digest':signature(stream,geometry['bytes']),
-                             'plan':p,'count':count,'layers':layers}
+                             'plan':p,'count':count,'layers':layers,'objects':objects}
                 after = os.fstat(stream.fileno())
                 if (before.st_size,before.st_mtime_ns) != (after.st_size,after.st_mtime_ns):
                     raise PlanError('print file changed during planning')
@@ -418,9 +605,9 @@ class AD5XPurge:
         except (ValueError, OSError, UnicodeError, KeyError, TypeError, IndexError) as exc:
             raise gcmd.error('LINE_PURGE geometry: ' + str(exc))
         gcmd.respond_info('Purge placement: side=%s clearance=%.3f start=%.3f,%.3f '
-                          'actual_paths=%d low_layers=%d scan=%.3fs cached=%d dry_run=%d' %
+                          'actual_paths=%d low_layers=%d objects=%d scan=%.3fs cached=%d dry_run=%d' %
                           (p['side'],p['clearance'],p['x'],p['y'],count,
-                           layers,self.reactor.monotonic()-start,cached,dry))
+                           layers,objects,self.reactor.monotonic()-start,cached,dry))
         if not dry:
             if not self.status('virtual_sdcard').get('is_active'):
                 raise gcmd.error('Print stopped during purge planning')

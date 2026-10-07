@@ -37,10 +37,10 @@ than this simple bead estimate; it needs physical checking.
 The toolpath fallback requires zero tip distance and zero XY G-code offsets.
 It scans low layers through purge height plus 0.5 mm, protecting extrusion,
 ordinary travel and the installed timelapse parking corridor. Complete Orca
-by-layer metadata and increasing layer markers are required. Arcs, custom motion
-macros, tool changes and unknown transforms in those layers fail closed. Reads
-are limited to 16 MiB of prefix and 512 KiB of footer, 300,000 path segments and
-40 seconds of planning, with periodic Klipper reactor yields. Square obstacle
+print-sequence metadata and complete layer markers are required. Arcs, custom
+motion macros and unknown transforms fail closed. By-layer reads are limited
+to 16 MiB of prefix and 512 KiB of footer, 300,000 path segments and 40 seconds
+of planning, with periodic Klipper reactor yields. Square obstacle
 buffers make the reported clearance a conservative geometric lower bound.
 Planning is only used when the simpler outer-band placement cannot fit.
 The last plan is cached in memory for reuse by the real startup after a dry run.
@@ -48,6 +48,23 @@ Each use hashes the inspected prefix and footer again and checks bed, purge and
 timelapse settings; changed content or settings forces fresh planning. The cache
 is cleared by a restart. On the small native CPU, a first complex-file scan can
 take tens of seconds; a cached decision needs only the content verification.
+
+By-object jobs are scanned through `END_PRINT` and the end of the file. Every
+declared object must appear with low-layer extrusion, and the parser includes
+later brims and descents between objects. High absolute moves use a bounded
+bulk scan; low moves and all modal changes still receive detailed parsing.
+Sequential limits are 256 MiB per file, 16 MiB of detailed parsing, 300,000 low
+paths and 240 seconds. The cached result hashes the whole file on every reuse.
+This can take longer than a by-layer prefix scan; a nonmoving dry run can prepare
+the cache before starting the job with the same settings.
+
+Sequential `T0` through `T3` changes are supported with the reviewed screenless
+AD5X restore macros, `use_trash_on_print` other than 2, and no extra IFS purge.
+They must occur outside an active object, in absolute XYZ / relative E mode,
+at Z at least 5 mm and at least 1 mm above the scanned purge envelope. Other
+tool changes are rejected. Changing from skipped relative-E motion to absolute
+E requires an explicit `G92 E` reset. This extension plans clearance for the
+startup bead; slicer head-clearance rules still govern collisions between parts.
 
 Rollback: remove just this include and restart while idle. Preserve later edits.
 Do not invoke `_LINE_PURGE` or `_RUN_VALIDATED_PURGE` directly; their arguments

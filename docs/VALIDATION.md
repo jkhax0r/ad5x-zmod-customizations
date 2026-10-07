@@ -12,10 +12,10 @@ sensors and clocks are test doubles.
 | Stock nine-point mesh averaging | 16 |
 | Optional soak and stale pause handling | 17 |
 | Four-edge purge placement | 18 |
-| Actual low-layer paths and macro fallback | 22 |
+| Actual low-layer paths and macro fallback | 35 |
 | Staged timelapse parking and native pause/resume state | 18 |
 
-All 112 cases pass locally with Python 3.14 and Jinja2 3.1.2. The purge suite also
+All 125 cases pass locally with Python 3.14 and Jinja2 3.1.2. The purge suite also
 checks low-Z paths against 120 seeded random footprints and explicit side/corner
 examples. Public fixtures exercise the same regression assertions as the private
 checkpoint without uploading measured meshes or job snapshots.
@@ -34,6 +34,25 @@ The interval-union optimization is compared with independent polygon clipping
 across both axes, varied margins and windows, overlapping and protruding buffers,
 parallel and zero-length paths. A blocked-window case verifies that redundant
 paths are not scanned after no stroke can fit.
+
+Sequential cases cover later-object brims, transitions and low descents after
+high layers; missing, mismatched and repeated object boundaries; unknown high
+commands and post-end motion; relative coordinates and extrusion-mode changes;
+tool-change contract/height checks; chunk boundaries and comments containing
+coordinate-like text; and changes to a later object outside the cached prefix
+and footer. The fast scanner is compared with the same parser with skipping
+disabled, including the entire private 60 MB failing file. Both produced exactly
+139,961 protected paths, 19 low layers and two objects.
+The optimized native Python 3.8 scan took 107.307 seconds to parse and 20.504
+seconds to choose the edge (127.810 seconds total). It selected the front edge
+at X3.053 Y3.000 with 54.392 mm clearance. This is a full sequential-job scan,
+so its timing is not directly comparable with a by-layer prefix scan. The older
+by-layer regression file still produces exactly its original placement.
+After backup and a full Klipper process restart, the installed command accepted
+the unchanged sequential file in a nonmoving dry run: 127.609 seconds uncached
+and 3.162 seconds for a full-file-verified cached repeat. Both reported two
+objects, 19 low layers and the same front-edge placement. Toolhead position stayed
+fixed and heater targets stayed at zero. Physical extrusion was not exercised.
 
 On the development printer, native Python 3.8 and a nonmoving Klipper command
 checked the actual file behind the aggregate-box failure. Its complete low-layer
